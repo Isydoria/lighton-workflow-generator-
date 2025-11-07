@@ -47,3 +47,10 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Dossier professionnel (ne pas commiter)
+dossier_professionnel/
+
+# Documentation d'analyse (ne pas commiter)
+COMPTE_RENDU_PROJET.md
+ANALYSE_PROBLEMES_ET_AMELIORATIONS.md
