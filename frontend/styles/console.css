@@ -1,0 +1,86 @@
+/*
+ * CSS Styles for Console/Logging Interface
+ *
+ * Provides terminal-style logging with:
+ * - Color-coded log entries
+ * - Scrollable container
+ * - Clear logs button
+ */
+
+/* Logs container - terminal style */
+.logs-container {
+    background: #1e1e1e;
+    color: #00ff00;
+    font-family: 'Courier New', monospace;
+    padding: 15px;
+    border-radius: 4px;
+    max-height: 600px;
+    overflow-y: auto;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.log-entry {
+    margin-bottom: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid #333;
+}
+
+.log-timestamp {
+    color: #888;
+}
+
+.log-api-call {
+    color: #00ccff;
+    font-weight: bold;
+}
+
+.log-query {
+    color: #ffcc00;
+}
+
+.log-doc-ids {
+    color: #ff9900;
+}
+
+.log-response {
+    color: #00ff88;
+}
+
+.log-error {
+    color: #ff4444;
+}
+
+.log-workflow-step {
+    color: #ff00ff;
+    font-weight: bold;
+}
+
+.log-endpoint {
+    color: #00ffff;
+}
+
+.log-payload {
+    color: #ffaa00;
+}
+
+.log-chunk {
+    color: #aaffaa;
+    font-size: 10px;
+}
+
+.log-detailed {
+    color: #cccccc;
+    font-size: 10px;
+    margin-left: 15px;
+}
+
+.clear-logs {
+    background: #444;
+    color: white;
+    border: 1px solid #666;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+    margin-bottom: 10px;
+}

@@ -1,0 +1,64 @@
+/*
+ * CSS Styles for Workflow Steps and File Management
+ *
+ * Provides styling for:
+ * - Drag-and-drop file upload
+ * - File list display
+ * - File actions and buttons
+ */
+
+/* File upload area */
+.file-upload-area {
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    background: #fafafa;
+    margin: 10px 0;
+}
+
+.file-upload-area.dragover {
+    border-color: #007bff;
+    background: #e7f3ff;
+}
+
+/* File list */
+.file-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
+}
+
+.file-list li {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    margin: 4px 0;
+    border-radius: 4px;
+    border-left: 4px solid #28a745;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.file-info {
+    flex-grow: 1;
+}
+
+.file-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.file-actions button {
+    padding: 4px 8px;
+    font-size: 12px;
+    margin: 0;
+}
+
+.remove-file {
+    background: #dc3545;
+}
+
+.remove-file:hover {
+    background: #c82333;
+}
