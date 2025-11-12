@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # Main application service
+  workflow-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lighton-workflow-generator
+    ports:
+      - "8000:8000"  # FastAPI backend
+      - "3000:3000"  # Frontend
+    environment:
+      # API Keys (to be set in .env file)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PARADIGM_API_KEY=${PARADIGM_API_KEY}
+      - PARADIGM_API_BASE_URL=${PARADIGM_API_BASE_URL:-https://paradigm.lighton.ai}
+
+      # Python environment
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    env_file:
+      - .env
+    volumes:
+      # Mount source code for development (comment out for production)
+      - ./api:/app/api
+      - ./frontend:/app/frontend
+      - ./index.html:/app/index.html
+
+      # Exclude venv and cache
+      - /app/api/__pycache__
+      - /app/api/workflow/__pycache__
+    restart: unless-stopped
+    networks:
+      - workflow-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  workflow-network:
+    driver: bridge
+
+# Optional: Add volumes for persistent data (if needed in the future)
+# volumes:
+#   workflow-data:

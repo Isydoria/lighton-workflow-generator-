@@ -1,0 +1,80 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Python cache and virtual environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment variables (should be passed at runtime)
+.env
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation and notes (not needed in container)
+dossier_professionnel/
+*.md
+!README.md
+COMPTE_RENDU_PROJET.md
+ANALYSE_PROBLEMES_ET_AMELIORATIONS.md
+CODE_MORT.md
+DEPLOYMENT.md
+CLAUDE.md
+
+# Backup files
+*.old
+*.backup
+*.bak
+
+# Vercel deployment files
+.vercel/
+.vercelignore
+vercel.json
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Logs
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Public folder if not needed
+public/
+
+# Node modules (if any)
+node_modules/
+npm-debug.log
+yarn-error.log
