@@ -19,11 +19,11 @@ Features:
 """
 
 import os
-from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+# override=False preserves variables already set by parent process
+load_dotenv(override=False)
 
 class Settings:
     """
@@ -37,7 +37,7 @@ class Settings:
         # Core API keys - required for operation
         self.anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
         self.lighton_api_key: str = os.getenv("LIGHTON_API_KEY", "")
-        
+
         # Server configuration
         self.debug: bool = os.getenv("DEBUG", "false").lower() == "true"
         self.host: str = os.getenv("HOST", "0.0.0.0")
