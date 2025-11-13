@@ -54,3 +54,12 @@ dossier_professionnel/
 # Documentation d'analyse (ne pas commiter)
 COMPTE_RENDU_PROJET.md
 ANALYSE_PROBLEMES_ET_AMELIORATIONS.md
+CODE_MORT.md
+index.html.old
+
+# Test files
+test_*.py
+test_*.json
+
+# Startup scripts with API keys
+start.bat
