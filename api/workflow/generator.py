@@ -56,14 +56,21 @@ class WorkflowGenerator:
         """
         Generate Python code from workflow description
         """
-        # PRE-PROCESS: If files are attached, prepend critical instruction to description
-        if context and context.get("attached_files"):
-            description = f"""🚨 CRITICAL: This workflow has {len(context['attached_files'])} files attached via attached_file_ids variable.
-DO NOT use document_search()! Use attached_file_ids directly:
-  document_ids = [str(id) for id in attached_file_ids]
-  analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids, private=True)
+        # PRE-PROCESS: If files are uploaded, prepend critical instruction to description
+        if context and context.get("use_uploaded_files") and context.get("uploaded_file_ids"):
+            num_files = len(context["uploaded_file_ids"])
+            description = f"""🚨🚨🚨 CRITICAL: {num_files} FILES ARE UPLOADED 🚨🚨🚨
 
-ORIGINAL WORKFLOW DESCRIPTION:
+FILES ARE AVAILABLE in 'attached_file_ids' variable - DO NOT use document_search()!
+
+MANDATORY PATTERN:
+if 'attached_file_ids' in globals() and attached_file_ids:
+    document_ids = [str(file_id) for file_id in attached_file_ids]
+    analysis = await paradigm_client.analyze_documents_with_polling("your query", document_ids, private=True)
+
+DO NOT create use_private variable - use literal True!
+
+ORIGINAL TASK:
 {description}"""
 
         system_prompt = """You are a Python code generator for workflow automation systems.
