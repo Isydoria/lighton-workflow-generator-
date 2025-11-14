@@ -213,9 +213,9 @@ When creating prompts for API calls, include relevant context from the original 
 
 WORKFLOW ACCESS TO ATTACHED FILES:
 - Use global variable 'attached_file_ids: List[int]' when files are attached
-- Pass these IDs to file_ids parameter in document_search (omit parameter if no files attached)
-- For direct document analysis: attached_file_ids ARE the document IDs - use them directly
-- Extract document IDs from search results for analysis ONLY when searching, not when using attached files
+- *** CRITICAL: If attached_file_ids exist, DO NOT use document_search! Use the IDs directly for analysis ***
+- attached_file_ids ARE the document IDs - convert to strings and analyze directly
+- document_search is ONLY needed when searching the workspace, NOT when files are already attached
 - *** CRITICAL: When analyzing attached_file_ids, ALWAYS use private=True parameter ***
 
 CORRECT FILE_IDS USAGE:
@@ -305,14 +305,26 @@ else:
     final_analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids, private=True)
 
 CORRECT USAGE WITH ATTACHED FILES:
-# When analyzing files that were uploaded and attached to the workflow
+# When files are attached, use their IDs DIRECTLY - NO document_search needed!
 if 'attached_file_ids' in globals() and attached_file_ids:
+    # Convert IDs to strings
     document_ids = [str(file_id) for file_id in attached_file_ids]
+
+    # Analyze directly - NO need for document_search first!
     # CRITICAL: Use private=True for attached files
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Analyze these documents",
         document_ids,
         private=True  # Uploaded files are in private collection
+    )
+else:
+    # ONLY use document_search if NO files are attached
+    search_results = await paradigm_client.document_search("your search query")
+    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
+    analysis = await paradigm_client.analyze_documents_with_polling(
+        "Analyze these documents",
+        document_ids,
+        private=False  # Workspace documents
     )
 
 CORRECT TEXT PROCESSING (using built-in libraries):
