@@ -197,16 +197,25 @@ IMPORTANT LIBRARY RESTRICTIONS:
 STRUCTURED OUTPUT BETWEEN STEPS:
 For workflow steps that extract or process information, use structured formats (JSON, lists, dicts) that make the output easy for subsequent steps to parse and use. Choose the most appropriate structure for each step's specific purpose.
 
+🚨🚨🚨 ABSOLUTELY CRITICAL RULE FOR ATTACHED FILES 🚨🚨🚨
+IF attached_file_ids EXISTS:
+  - DO NOT CALL document_search()
+  - USE attached_file_ids DIRECTLY as document IDs
+  - CONVERT to strings: document_ids = [str(id) for id in attached_file_ids]
+  - USE literal private=True (NOT a variable like use_private)
+  - EXAMPLE: await paradigm_client.analyze_documents_with_polling(query, document_ids, private=True)
+
 AVAILABLE API METHODS:
 1. await paradigm_client.document_search(query: str, workspace_ids=None, file_ids=None, company_scope=True, private_scope=True, tool="DocumentSearch", private=False)
+   ⚠️ NEVER call this if attached_file_ids exists! Use the IDs directly instead.
 2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None, private=False)
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** IMPORTANT: For document type identification, analyze documents ONE BY ONE to get clear ID-to-type mapping ***
-   *** CRITICAL: When analyzing ATTACHED FILES (attached_file_ids), ALWAYS set private=True because uploaded files are in private collection ***
+   *** CRITICAL: When analyzing ATTACHED FILES (attached_file_ids), ALWAYS set private=True (literal, not variable) ***
 3. await paradigm_client.chat_completion(prompt: str, model: str = "Alfred 4.2")
 4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None, private=False) - Analyze images in documents with AI-powered visual analysis
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
-   *** CRITICAL: When analyzing ATTACHED FILES (attached_file_ids), ALWAYS set private=True because uploaded files are in private collection ***
+   *** CRITICAL: When analyzing ATTACHED FILES (attached_file_ids), ALWAYS set private=True (literal, not variable) ***
 
 CONTEXT PRESERVATION IN API PROMPTS:
 When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
