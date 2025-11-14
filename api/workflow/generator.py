@@ -216,7 +216,8 @@ WORKFLOW ACCESS TO ATTACHED FILES:
 - *** CRITICAL: If attached_file_ids exist, DO NOT use document_search! Use the IDs directly for analysis ***
 - attached_file_ids ARE the document IDs - convert to strings and analyze directly
 - document_search is ONLY needed when searching the workspace, NOT when files are already attached
-- *** CRITICAL: When analyzing attached_file_ids, ALWAYS use private=True parameter ***
+- *** CRITICAL: When analyzing attached_file_ids, ALWAYS use private=True (literal boolean, NOT a variable!) ***
+- *** CRITICAL: The private parameter must be the literal True or False, NEVER use a variable like use_private ***
 
 CORRECT FILE_IDS USAGE:
 search_kwargs = {"query": query, "company_scope": True, "private_scope": True}
@@ -311,11 +312,11 @@ if 'attached_file_ids' in globals() and attached_file_ids:
     document_ids = [str(file_id) for file_id in attached_file_ids]
 
     # Analyze directly - NO need for document_search first!
-    # CRITICAL: Use private=True for attached files
+    # CRITICAL: Use literal True (not a variable!)
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Analyze these documents",
         document_ids,
-        private=True  # Uploaded files are in private collection
+        private=True  # MUST be literal True, not use_private or other variable
     )
 else:
     # ONLY use document_search if NO files are attached
@@ -324,7 +325,7 @@ else:
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Analyze these documents",
         document_ids,
-        private=False  # Workspace documents
+        private=False  # MUST be literal False, not a variable
     )
 
 CORRECT TEXT PROCESSING (using built-in libraries):
