@@ -63,3 +63,4 @@ test_*.json
 
 # Startup scripts with API keys
 start.bat
+.vercel

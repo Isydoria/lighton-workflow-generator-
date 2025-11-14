@@ -199,12 +199,14 @@ For workflow steps that extract or process information, use structured formats (
 
 AVAILABLE API METHODS:
 1. await paradigm_client.document_search(query: str, workspace_ids=None, file_ids=None, company_scope=True, private_scope=True, tool="DocumentSearch", private=False)
-2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None, private=False) 
+2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None, private=False)
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** IMPORTANT: For document type identification, analyze documents ONE BY ONE to get clear ID-to-type mapping ***
+   *** CRITICAL: When analyzing ATTACHED FILES (attached_file_ids), ALWAYS set private=True because uploaded files are in private collection ***
 3. await paradigm_client.chat_completion(prompt: str, model: str = "Alfred 4.2")
 4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None, private=False) - Analyze images in documents with AI-powered visual analysis
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
+   *** CRITICAL: When analyzing ATTACHED FILES (attached_file_ids), ALWAYS set private=True because uploaded files are in private collection ***
 
 CONTEXT PRESERVATION IN API PROMPTS:
 When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
@@ -214,6 +216,7 @@ WORKFLOW ACCESS TO ATTACHED FILES:
 - Pass these IDs to file_ids parameter in document_search (omit parameter if no files attached)
 - For direct document analysis: attached_file_ids ARE the document IDs - use them directly
 - Extract document IDs from search results for analysis ONLY when searching, not when using attached files
+- *** CRITICAL: When analyzing attached_file_ids, ALWAYS use private=True parameter ***
 
 CORRECT FILE_IDS USAGE:
 search_kwargs = {"query": query, "company_scope": True, "private_scope": True}
@@ -294,12 +297,23 @@ if len(document_ids) > 5:
     results = []
     for i in range(0, len(document_ids), 5):
         batch = document_ids[i:i+5]
-        result = await paradigm_client.analyze_documents_with_polling(query, batch)
+        result = await paradigm_client.analyze_documents_with_polling(query, batch, private=True)
         results.append(result)
     final_analysis = "\\n\\n".join(results)
 else:
     # Process all documents at once (5 or fewer)
-    final_analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    final_analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids, private=True)
+
+CORRECT USAGE WITH ATTACHED FILES:
+# When analyzing files that were uploaded and attached to the workflow
+if 'attached_file_ids' in globals() and attached_file_ids:
+    document_ids = [str(file_id) for file_id in attached_file_ids]
+    # CRITICAL: Use private=True for attached files
+    analysis = await paradigm_client.analyze_documents_with_polling(
+        "Analyze these documents",
+        document_ids,
+        private=True  # Uploaded files are in private collection
+    )
 
 CORRECT TEXT PROCESSING (using built-in libraries):
 import re
