@@ -305,18 +305,26 @@ else:
     # Process all documents at once (5 or fewer)
     final_analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids, private=True)
 
-CORRECT USAGE WITH ATTACHED FILES:
-# When files are attached, use their IDs DIRECTLY - NO document_search needed!
+❌ WRONG - DO NOT DO THIS:
+if 'attached_file_ids' in globals() and attached_file_ids:
+    search_kwargs["file_ids"] = attached_file_ids
+search_results = await paradigm_client.document_search(**search_kwargs)  # ❌ WRONG!
+documents = search_results.get("documents", [])
+document_ids = [str(doc["id"]) for doc in documents]  # ❌ WRONG!
+use_private = 'attached_file_ids' in globals() and attached_file_ids  # ❌ WRONG! Never use variables
+analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids, private=use_private)  # ❌ WRONG!
+
+✅ CORRECT - DO THIS INSTEAD:
+# When files are attached, use their IDs DIRECTLY - NO document_search!
 if 'attached_file_ids' in globals() and attached_file_ids:
     # Convert IDs to strings
     document_ids = [str(file_id) for file_id in attached_file_ids]
 
-    # Analyze directly - NO need for document_search first!
-    # CRITICAL: Use literal True (not a variable!)
+    # Analyze directly with literal True
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Analyze these documents",
         document_ids,
-        private=True  # MUST be literal True, not use_private or other variable
+        private=True  # ✅ Literal True, not a variable
     )
 else:
     # ONLY use document_search if NO files are attached
@@ -325,7 +333,7 @@ else:
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Analyze these documents",
         document_ids,
-        private=False  # MUST be literal False, not a variable
+        private=False  # ✅ Literal False, not a variable
     )
 
 CORRECT TEXT PROCESSING (using built-in libraries):
