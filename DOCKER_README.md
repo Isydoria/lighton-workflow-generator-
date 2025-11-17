@@ -100,6 +100,8 @@ docker-compose down -v
 | `ANTHROPIC_API_KEY` | Clé API Anthropic pour Claude | Oui | - |
 | `PARADIGM_API_KEY` | Clé API LightOn Paradigm | Oui | - |
 | `PARADIGM_API_BASE_URL` | URL de base de l'API Paradigm | Non | `https://paradigm.lighton.ai` |
+| `UPSTASH_REDIS_REST_URL` | URL de l'API REST Upstash Redis | Non | - |
+| `UPSTASH_REDIS_REST_TOKEN` | Token d'authentification Upstash Redis | Non | - |
 | `PYTHONUNBUFFERED` | Désactive le buffering Python | Non | `1` |
 
 ### Ports exposés
@@ -300,6 +302,48 @@ healthcheck:
 
 ---
 
+## 🗄️ Configuration Redis (Upstash)
+
+### Pourquoi Redis ?
+
+L'application supporte Upstash Redis pour le stockage persistant des workflows, particulièrement utile dans les environnements serverless comme Vercel :
+
+- **Avec Redis** : Les workflows persistent entre les redémarrages de containers et les instances serverless
+- **Sans Redis** : Fallback vers stockage en mémoire (workflows perdus au redémarrage)
+
+### Configuration locale avec Redis
+
+Pour utiliser Redis en local avec Docker :
+
+```bash
+# Ajoutez les variables dans votre .env
+UPSTASH_REDIS_REST_URL=https://your-redis-instance.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-redis-token-here
+```
+
+### Obtenir des credentials Upstash Redis
+
+1. Créer un compte sur [Upstash](https://upstash.com/)
+2. Créer une base de données Redis
+3. Copier l'URL REST et le token
+4. Ajouter les credentials dans `.env`
+
+### Mode développement sans Redis
+
+Redis est **optionnel** pour le développement local. Si les variables ne sont pas configurées :
+- L'application démarre normalement
+- Les workflows sont stockés en mémoire
+- Un warning apparaît dans les logs : `⚠️ upstash-redis not installed, using in-memory storage`
+
+### TTL (Time To Live)
+
+Les workflows stockés dans Redis ont une durée de vie de **24 heures** :
+- Nettoyage automatique après expiration
+- Pas de maintenance manuelle nécessaire
+- Configurable dans `api/workflow/executor.py` (ligne 62)
+
+---
+
 ## 🚀 Production
 
 ### Build pour production
@@ -334,6 +378,8 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - PARADIGM_API_KEY=${PARADIGM_API_KEY}
       - PARADIGM_API_BASE_URL=${PARADIGM_API_BASE_URL}
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
     env_file:
       - .env.production
     restart: always
@@ -474,6 +520,7 @@ Ce projet est développé par LightOn - Team Use Cases / Workflow Builder.
 
 ---
 
-**Version** : 1.0.0
-**Date** : 12 novembre 2025
+**Version** : 1.1.0
+**Date** : 17 janvier 2025
 **Auteur** : Nathanaëlle Debaque
+**Dernière mise à jour** : Ajout de la configuration Upstash Redis pour persistance serverless

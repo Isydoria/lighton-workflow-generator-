@@ -16,6 +16,10 @@ services:
       - PARADIGM_API_KEY=${PARADIGM_API_KEY}
       - PARADIGM_API_BASE_URL=${PARADIGM_API_BASE_URL:-https://paradigm.lighton.ai}
 
+      # Redis configuration (optional - for serverless compatibility)
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
+
       # Python environment
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
