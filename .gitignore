@@ -54,3 +54,19 @@ dossier_professionnel/
 # Documentation d'analyse (ne pas commiter)
 COMPTE_RENDU_PROJET.md
 ANALYSE_PROBLEMES_ET_AMELIORATIONS.md
+CODE_MORT.md
+index.html.old
+
+# Analyses de workflow senior (ne pas commiter)
+ANALYSE_WORKFLOW_SENIOR_UGAP_DC4.md
+COMPARAISON_WORKFLOWS.md
+RESUME_EXECUTIF_MILO.md
+test_workflow_dc4_simplifie.md
+
+# Test files
+test_*.py
+test_*.json
+
+# Startup scripts with API keys
+start.bat
+.vercel
