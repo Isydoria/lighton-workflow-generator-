@@ -27,6 +27,7 @@ and provides comprehensive API documentation via FastAPI's automatic OpenAPI int
 """
 
 import logging
+import asyncio
 from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
@@ -337,32 +338,72 @@ async def get_workflow(workflow_id: str):
 async def execute_workflow(workflow_id: str, request: WorkflowExecuteRequest):
     """
     Execute a workflow with user input and optional file attachments.
-    
+
     Runs the generated workflow code with the provided user input.
     Supports file attachments that can be processed within the workflow.
     Execution is performed in a secure, isolated environment with timeout protection.
-    
+
     Args:
         workflow_id: ID of the workflow to execute
         request: Execution request with user input and optional file IDs
-        
+
     Returns:
         WorkflowExecutionResponse: Execution results with status and timing
-        
+
     Raises:
         HTTPException: 400 for validation errors, 500 for execution failures
-        
+
     Note:
         Execution timeout is configured via settings.max_execution_time (default: 5 minutes)
     """
     try:
         logger.info(f"Executing workflow {workflow_id} with input: {request.user_input[:100]}...")
-        
+
+        # If files are attached, verify they are fully indexed before executing
+        if request.attached_file_ids:
+            logger.info(f"🔍 Verifying {len(request.attached_file_ids)} attached files are ready for analysis...")
+            validate_lighton_api_key()
+
+            max_wait_time = 60  # Maximum 60 seconds wait
+            poll_interval = 3  # Check every 3 seconds
+            elapsed_time = 0
+
+            while elapsed_time < max_wait_time:
+                all_ready = True
+                files_status = []
+
+                for file_id in request.attached_file_ids:
+                    try:
+                        file_info = await paradigm_client.get_file_info(file_id)
+                        status = file_info.get("status", "unknown")
+                        files_status.append(f"File {file_id}: {status}")
+
+                        # Check if file is ready (status should be "embedded" or similar)
+                        if status.lower() not in ["completed", "complete", "indexed", "ready", "success", "embedded"]:
+                            all_ready = False
+                            logger.info(f"⏳ File {file_id} not ready yet (status: {status})")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to check file {file_id} status: {str(e)}")
+                        all_ready = False
+
+                if all_ready:
+                    logger.info(f"✅ All {len(request.attached_file_ids)} files are ready for analysis!")
+                    break
+
+                # Wait before next check
+                await asyncio.sleep(poll_interval)
+                elapsed_time += poll_interval
+                logger.info(f"⏳ Waiting for files to be indexed... ({elapsed_time}s / {max_wait_time}s)")
+
+            if not all_ready:
+                logger.warning(f"⚠️ Files not fully indexed after {max_wait_time}s, proceeding anyway...")
+                logger.warning(f"📋 Files status: {', '.join(files_status)}")
+
         # Execute the workflow
         execution = await workflow_executor.execute_workflow(workflow_id, request.user_input, request.attached_file_ids)
-        
+
         logger.info(f"Workflow execution completed: {execution.id} (status: {execution.status})")
-        
+
         return WorkflowExecutionResponse(
             workflow_id=execution.workflow_id,
             execution_id=execution.id,
@@ -372,7 +413,7 @@ async def execute_workflow(workflow_id: str, request: WorkflowExecuteRequest):
             error=execution.error,
             created_at=execution.created_at
         )
-        
+
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(
