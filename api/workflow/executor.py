@@ -2,6 +2,8 @@ import asyncio
 import time
 import io
 import logging
+import json
+import os
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Optional, Dict, Any, List
 from .models import Workflow, WorkflowExecution, ExecutionStatus
@@ -9,19 +11,67 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+# Import Upstash Redis
+try:
+    from upstash_redis import Redis
+    redis_client = Redis(
+        url=os.getenv("UPSTASH_REDIS_REST_URL"),
+        token=os.getenv("UPSTASH_REDIS_REST_TOKEN")
+    ) if os.getenv("UPSTASH_REDIS_REST_URL") else None
+except ImportError:
+    redis_client = None
+    logger.warning("⚠️ upstash-redis not installed, using in-memory storage")
+
 class WorkflowExecutor:
     def __init__(self):
         self.max_execution_time = settings.max_execution_time
+        self.use_redis = redis_client is not None
+        # Fallback to in-memory if Redis not available
         self.workflows: Dict[str, Workflow] = {}
         self.executions: Dict[str, WorkflowExecution] = {}
-    
+
+        if self.use_redis:
+            logger.info("✅ Using Redis (Upstash) for workflow storage")
+        else:
+            logger.warning("⚠️ Using in-memory storage (not suitable for serverless)")
+
     def store_workflow(self, workflow: Workflow) -> None:
         """Store a workflow for later execution"""
-        self.workflows[workflow.id] = workflow
-    
+        if self.use_redis:
+            # Store in Redis with 24h expiration
+            # Convert Workflow object to dict, then to JSON string
+            workflow_dict = {
+                "id": workflow.id,
+                "name": workflow.name,
+                "description": workflow.description,
+                "generated_code": workflow.generated_code,
+                "status": workflow.status,
+                "created_at": workflow.created_at.isoformat() if workflow.created_at else None,
+                "updated_at": workflow.updated_at.isoformat() if workflow.updated_at else None,
+                "error": workflow.error,
+                "context": workflow.context
+            }
+            workflow_data = json.dumps(workflow_dict)
+            redis_client.setex(
+                f"workflow:{workflow.id}",
+                86400,  # 24 hours TTL
+                workflow_data
+            )
+            logger.info(f"✅ Stored workflow {workflow.id} in Redis")
+        else:
+            self.workflows[workflow.id] = workflow
+
     def get_workflow(self, workflow_id: str) -> Optional[Workflow]:
         """Retrieve a stored workflow"""
-        return self.workflows.get(workflow_id)
+        if self.use_redis:
+            workflow_data = redis_client.get(f"workflow:{workflow_id}")
+            if workflow_data:
+                # Parse JSON string back to Workflow object
+                workflow_dict = json.loads(workflow_data)
+                return Workflow(**workflow_dict)
+            return None
+        else:
+            return self.workflows.get(workflow_id)
     
     def get_execution(self, execution_id: str) -> Optional[WorkflowExecution]:
         """Retrieve an execution record"""

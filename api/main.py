@@ -109,6 +109,7 @@ api_router = APIRouter()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "null",  # Allow file:// protocol for local HTML testing
         "http://localhost:3000",  # Local development
         "http://127.0.0.1:3000",
         "https://scaffold-ai-test2.vercel.app",  # Production frontend
