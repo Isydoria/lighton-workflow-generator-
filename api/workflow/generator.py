@@ -197,33 +197,39 @@ IMPORTANT LIBRARY RESTRICTIONS:
 STRUCTURED OUTPUT BETWEEN STEPS:
 For workflow steps that extract or process information, use structured formats (JSON, lists, dicts) that make the output easy for subsequent steps to parse and use. Choose the most appropriate structure for each step's specific purpose.
 
+🚨🚨🚨 MANDATORY PATTERN FOR DOCUMENT WORKFLOWS 🚨🚨🚨
+EVERY workflow that needs documents MUST use this exact if/else pattern:
+
+if 'attached_file_ids' in globals() and attached_file_ids:
+    # User uploaded files - use them directly (NO document_search!)
+    document_ids = [str(file_id) for file_id in attached_file_ids]
+    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+else:
+    # No uploaded files - search workspace
+    search_results = await paradigm_client.document_search(query)
+    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
+    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+
+NEVER skip the if/else check. NEVER call document_search when attached_file_ids exists.
+
 AVAILABLE API METHODS:
 1. await paradigm_client.document_search(query: str, workspace_ids=None, file_ids=None, company_scope=True, private_scope=True, tool="DocumentSearch", private=False)
-2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None, private=False) 
+   ⚠️ NEVER call this if attached_file_ids exists! Use the IDs directly instead.
+2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None)
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** IMPORTANT: For document type identification, analyze documents ONE BY ONE to get clear ID-to-type mapping ***
+   *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
 3. await paradigm_client.chat_completion(prompt: str, model: str = "Alfred 4.2")
-4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None, private=False) - Analyze images in documents with AI-powered visual analysis
+4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None) - Analyze images in documents with AI-powered visual analysis
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
+   *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
 
 CONTEXT PRESERVATION IN API PROMPTS:
 When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
 
 WORKFLOW ACCESS TO ATTACHED FILES:
-- Use global variable 'attached_file_ids: List[int]' when files are attached
-- Pass these IDs to file_ids parameter in document_search (omit parameter if no files attached)
-- For direct document analysis: attached_file_ids ARE the document IDs - use them directly
-- Extract document IDs from search results for analysis ONLY when searching, not when using attached files
-
-CORRECT FILE_IDS USAGE:
-search_kwargs = {"query": query, "company_scope": True, "private_scope": True}
-if 'attached_file_ids' in globals() and attached_file_ids:
-    search_kwargs["file_ids"] = attached_file_ids
-search_results = await paradigm_client.document_search(**search_kwargs)
-
-CORRECT DOCUMENT_IDS EXTRACTION FOR ANALYSIS:
-document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]  # Convert to strings
-# OR for attached files: document_ids = [str(file_id) for file_id in attached_file_ids]
+The global variable 'attached_file_ids: List[int]' is available when users upload files.
+Your workflow MUST check for this variable and handle both cases (uploaded files OR workspace search).
 
 CORRECT DOCUMENT TYPE IDENTIFICATION (analyze individually for clear mapping):
 def extract_document_type_from_response(analysis_response, expected_types):
@@ -301,6 +307,38 @@ else:
     # Process all documents at once (5 or fewer)
     final_analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 
+❌ WRONG PATTERN - THIS WILL FAIL:
+# DON'T call document_search with attached files - it returns 0 documents!
+search_results = await paradigm_client.document_search(query)
+documents = search_results.get("documents", [])  # Returns [] for uploaded files
+document_ids = [str(doc["id"]) for doc in documents]
+analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+
+✅ CORRECT PATTERN - ALWAYS USE THIS:
+# Check for uploaded files first, then fallback to workspace search
+if 'attached_file_ids' in globals() and attached_file_ids:
+    # User uploaded files - use them directly (NO document_search!)
+    document_ids = [str(file_id) for file_id in attached_file_ids]
+    analysis = await paradigm_client.analyze_documents_with_polling(
+        "Your analysis query here",
+        document_ids
+    )
+else:
+    # No uploaded files - search the workspace
+    search_results = await paradigm_client.document_search("Your search query here")
+    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
+    analysis = await paradigm_client.analyze_documents_with_polling(
+        "Your analysis query here",
+        document_ids
+    )
+
+WHY THIS MATTERS:
+- Uploaded files (attached_file_ids) are in your private collection
+- document_search() searches the workspace, NOT private uploaded files
+- Calling document_search with uploaded file IDs returns 0 documents
+- You must use attached_file_ids directly when they exist
+- The API automatically uses your auth token to access documents
+
 CORRECT TEXT PROCESSING (using built-in libraries):
 import re
 def split_sentences(text):
@@ -332,6 +370,7 @@ Generate a complete, self-contained workflow that:
 2. Implements the execute_workflow function with the exact logic described
 3. Can be copy-pasted and run independently on any server
 4. Handles the workflow requirements exactly as specified
+5. MANDATORY: If the workflow uses documents, implement the if/else pattern for attached_file_ids as shown in the CORRECT PATTERN section above
 """
         
         try:
