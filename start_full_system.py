@@ -1,122 +1,138 @@
 #!/usr/bin/env python3
 """
-Full System Startup Script
+Start Full System - Docker Entry Point
 
-This script starts both the FastAPI backend and frontend servers together
-for local development and testing. It manages both processes and provides
-clean shutdown when interrupted.
+This script starts both the frontend HTTP server and the FastAPI backend.
+Used as the Docker container entry point.
 
-Features:
-    - Starts FastAPI backend on port 8000
-    - Starts frontend server on port 3000
-    - Handles process lifecycle management
-    - Graceful shutdown with Ctrl+C
-    - Process cleanup on exit
-
-Usage:
-    python start_full_system.py
-    
-    Then open http://localhost:3000 for the frontend
-    API documentation available at http://localhost:8000/docs
-
-Architecture:
-    - Subprocess management for parallel process execution
-    - Signal handling for clean shutdown
-    - Error handling and process recovery
-    - Cross-platform compatibility
+NO EMOJIS - Windows CP1252 encoding compatibility.
 """
-import subprocess
-import time
+
 import os
-import signal
 import sys
+import subprocess
+import signal
+import time
 from pathlib import Path
 
-def start_full_system():
-    """
-    Start both FastAPI backend and frontend server in parallel.
-    
-    Manages the lifecycle of both processes, handles startup sequencing,
-    and provides clean shutdown functionality. Monitors both processes
-    and performs cleanup on exit.
-    
-    Process Flow:
-        1. Start FastAPI backend server
-        2. Wait for backend to initialize
-        3. Start frontend server
-        4. Monitor both processes
-        5. Handle shutdown signals
-        6. Clean up processes on exit
-    """
-    
-    backend_process = None
-    frontend_process = None
-    
-    try:
-        print("🚀 Starting Workflow Automation System...")
-        print("=" * 50)
-        
-        # Determine the correct Python interpreter (virtual environment if available)
-        python_executable = sys.executable
-        venv_python = Path(__file__).parent / "venv" / "bin" / "python"
-        venv_python_windows = Path(__file__).parent / "venv" / "Scripts" / "python.exe"
-        
-        if venv_python.exists():
-            python_executable = str(venv_python)
-            print(f"🐍 Using virtual environment Python: {python_executable}")
-        elif venv_python_windows.exists():
-            python_executable = str(venv_python_windows)
-            print(f"🐍 Using virtual environment Python: {python_executable}")
-        else:
-            print(f"🐍 Using system Python: {python_executable}")
-        
-        # Start FastAPI backend
-        print("📡 Starting FastAPI backend on http://localhost:8000...")
-        backend_process = subprocess.Popen([
-            python_executable, "-m", "api.main"
-        ], cwd=Path(__file__).parent)
-        
-        # Wait a moment for backend to start
-        time.sleep(3)
-        
-        # Start frontend server from root directory (where index.html is now located)
-        print("🌐 Starting frontend server on http://localhost:3000...")
-        frontend_process = subprocess.Popen([
-            python_executable, "-m", "http.server", "3000"
-        ], cwd=Path(__file__).parent)  # Changed from /frontend to root directory
-        
-        print("\n✅ Both servers are running!")
-        print("🔗 Open http://localhost:3000 in your browser")
-        print("📡 API docs available at http://localhost:8000/docs")
-        print("\nPress Ctrl+C to stop both servers")
-        
-        # Wait for interrupt
+# Global process references for cleanup
+frontend_process = None
+backend_process = None
+
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully."""
+    print("Shutdown signal received, stopping servers...")
+    cleanup_processes()
+    sys.exit(0)
+
+
+def cleanup_processes():
+    """Terminate all child processes."""
+    global frontend_process, backend_process
+
+    if frontend_process:
+        print("Stopping frontend server...")
+        frontend_process.terminate()
         try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n🛑 Stopping servers...")
-            
+            frontend_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            frontend_process.kill()
+
+    if backend_process:
+        print("Stopping backend API...")
+        backend_process.terminate()
+        try:
+            backend_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            backend_process.kill()
+
+
+def start_full_system():
+    """Start both frontend and backend servers."""
+    global frontend_process, backend_process
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    try:
+        print("=" * 50)
+        print("  Starting Workflow Automation System")
+        print("=" * 50)
+        print()
+
+        # Get project root directory
+        project_root = Path(__file__).parent
+
+        # Start frontend HTTP server on port 3000
+        print("[1/2] Starting frontend server (port 3000)...")
+        frontend_process = subprocess.Popen(
+            [sys.executable, "-m", "http.server", "3000"],
+            cwd=project_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        time.sleep(2)
+
+        # Check if frontend started successfully
+        if frontend_process.poll() is not None:
+            print("ERROR: Frontend server failed to start")
+            return
+        print("   Frontend server started successfully")
+
+        # Start FastAPI backend on port 8000
+        print("[2/2] Starting backend API (port 8000)...")
+        backend_process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "api.index:app",
+             "--host", "0.0.0.0", "--port", "8000"],
+            cwd=project_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        time.sleep(3)
+
+        # Check if backend started successfully
+        if backend_process.poll() is not None:
+            print("ERROR: Backend API failed to start")
+            cleanup_processes()
+            return
+        print("   Backend API started successfully")
+
+        print()
+        print("=" * 50)
+        print("  ALL SERVERS RUNNING")
+        print("  Frontend: http://localhost:3000")
+        print("  Backend API: http://localhost:8000")
+        print("  API Docs: http://localhost:8000/docs")
+        print("=" * 50)
+        print()
+        print("Press Ctrl+C to stop all servers")
+
+        # Keep the script running and monitor processes
+        while True:
+            # Check if any process died
+            if frontend_process.poll() is not None:
+                print("ERROR: Frontend server stopped unexpectedly")
+                cleanup_processes()
+                sys.exit(1)
+
+            if backend_process.poll() is not None:
+                print("ERROR: Backend API stopped unexpectedly")
+                cleanup_processes()
+                sys.exit(1)
+
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("\nShutdown requested by user")
+        cleanup_processes()
+        print("All servers stopped")
     except Exception as e:
-        print(f"❌ Error: {e}")
-        
-    finally:
-        # Clean up processes
-        if backend_process:
-            backend_process.terminate()
-            try:
-                backend_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                backend_process.kill()
-        
-        if frontend_process:
-            frontend_process.terminate()
-            try:
-                frontend_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                frontend_process.kill()
-        
-        print("👋 All servers stopped")
+        print(f"Error: {e}")
+        cleanup_processes()
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     start_full_system()

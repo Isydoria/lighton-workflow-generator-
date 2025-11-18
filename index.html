@@ -602,8 +602,13 @@ if __name__ == "__main__":
         
          
         // Global configuration and state variables
-        //const API_BASE = 'http://localhost:8000/api'  // Local backend API base URL with /api prefix
-        const API_BASE = '/api'  // Same-domain API base URL for Vercel deployment
+        // Auto-detect environment: use localhost:8000 in development, same-domain /api in production
+        const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+            ? 'http://localhost:8000/api'  // Local development
+            : '/api';                       // Production (Vercel, Docker, etc.)
+
+        console.log(`🔧 API_BASE configured as: ${API_BASE}`);
+
         let currentWorkflowId = null;    // Currently active workflow ID
         let logCounter = 0;              // Counter for log entry IDs
         let queryAttachedFiles = [];     // Files attached to current query

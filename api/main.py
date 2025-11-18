@@ -21,7 +21,7 @@ API Endpoints:
     - POST /workflows/{id}/execute - Execute workflow
     - POST /files/upload - Upload files for processing
     - File management endpoints for questioning and deletion
-    
+
 The application supports cross-domain deployment with multiple frontend origins
 and provides comprehensive API documentation via FastAPI's automatic OpenAPI integration.
 """
@@ -63,10 +63,10 @@ logger = logging.getLogger(__name__)
 def validate_anthropic_api_key():
     """
     Validate that Anthropic API key is available.
-    
+
     Returns:
         bool: True if API key is available
-        
+
     Raises:
         HTTPException: 503 if API key is missing
     """

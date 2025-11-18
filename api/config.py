@@ -19,11 +19,15 @@ Features:
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
+# Find .env file in project root (parent directory of api/)
+env_path = Path(__file__).parent.parent / '.env'
+
 # Load environment variables from .env file
-# override=False preserves variables already set by parent process
-load_dotenv(override=False)
+# override=True ensures .env file values take precedence
+load_dotenv(dotenv_path=env_path, override=True)
 
 class Settings:
     """

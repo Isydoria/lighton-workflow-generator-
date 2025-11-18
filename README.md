@@ -1,38 +1,68 @@
-# Workflow Automation API
+# LightOn Workflow Builder
 
-An MVP backend system that allows users to describe multi-step processes in natural language, automatically generates executable code using the Anthropic API, and executes workflows that can utilize LightOn Paradigm API endpoints.
+Application de génération et d'exécution de workflows automatisés utilisant l'API Anthropic Claude et l'API LightOn Paradigm.
 
-## Features
+## 🚀 Démarrage Rapide
 
-- **Natural Language to Code**: Describe workflows in plain English and get executable Python code
-- **LightOn Paradigm Integration**: Built-in support for document search using LightOn Paradigm API
-- **Safe Code Execution**: Sandboxed execution environment with timeout protection
-- **RESTful API**: Clean FastAPI endpoints for workflow management and execution
-- **Async Support**: Full asynchronous operation for better performance
+### Développement quotidien
+Double-cliquez sur **`dev.bat`**
+- Démarre le serveur en mode développement
+- Frontend : http://localhost:3000
+- Backend API : http://localhost:8000/docs
 
-## Setup
+### Test avant déploiement
+Double-cliquez sur **`test-docker.bat`**
+- Teste l'application dans Docker (environnement de production)
+- Vérifiez que tout fonctionne avant de déployer
 
-1. **Install Dependencies**
+## 📋 Prérequis
+
+1. **Python 3.11+** installé
+2. **Docker Desktop** (pour les tests Docker uniquement)
+3. **Fichier .env** avec vos clés API :
+   ```env
+   ANTHROPIC_API_KEY=votre_clé_anthropic
+   LIGHTON_API_KEY=votre_clé_lighton
+   ```
+
+## 🛠️ Workflow de Développement
+
+```
+1. Développer        → dev.bat
+2. Tester            → http://localhost:3000
+3. Test Docker       → test-docker.bat (avant commit)
+4. Commit & Push     → git commit && git push
+5. Déploiement       → Automatique sur Vercel
+```
+
+## ✨ Fonctionnalités
+
+- **Natural Language to Code**: Décrivez vos workflows en langage naturel
+- **LightOn Paradigm Integration**: Recherche et analyse de documents
+- **Safe Code Execution**: Environnement d'exécution sécurisé avec timeout
+- **RESTful API**: API FastAPI propre et bien documentée
+- **Async Support**: Opérations asynchrones pour de meilleures performances
+
+## 🔧 Installation Manuelle (si besoin)
+
+1. **Installer les dépendances**
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **Configure API Keys**
-   
-   Copy the `.env` file and add your actual API keys:
+2. **Configurer les clés API**
+
+   Créez un fichier `.env` à la racine :
    ```bash
-   # Replace with your actual keys
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-   LIGHTON_API_KEY=your_lighton_api_key_here
+   ANTHROPIC_API_KEY=votre_clé_anthropic
+   LIGHTON_API_KEY=votre_clé_lighton
    ```
 
-3. **Run the Server**
+3. **Démarrer le serveur**
    ```bash
-   # From the project root directory
-   python -m app.main
-   
-   # Or using uvicorn directly
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   # Utilisez plutôt dev.bat (recommandé)
+   # Ou manuellement :
+   python -m uvicorn api.index:app --port 8000
    ```
 
 ## API Usage
@@ -99,45 +129,61 @@ Run the example test to verify everything works:
 python test_example.py
 ```
 
-## Project Structure
+## 📁 Structure du Projet
 
 ```
-├── .env                    # API keys and configuration
-├── requirements.txt        # Python dependencies
-├── app/
-│   ├── main.py            # FastAPI application
-│   ├── config.py          # Configuration management
-│   ├── models.py          # API models and schemas
-│   ├── utils.py           # Helper functions
-│   ├── workflow/
-│   │   ├── generator.py   # Code generation using Anthropic
-│   │   ├── executor.py    # Safe workflow execution
-│   │   └── models.py      # Workflow data models
-│   └── integrations/
-│       ├── anthropic_client.py  # Anthropic API client
-│       └── paradigm_client.py   # LightOn Paradigm client
-└── test_example.py        # Test script
+├── api/                    # Backend FastAPI
+│   ├── config.py          # Configuration (charge .env)
+│   ├── main.py            # Application FastAPI
+│   ├── models.py          # Modèles de données
+│   ├── api_clients.py     # Clients API (Paradigm)
+│   └── workflow/          # Générateur et exécuteur de workflows
+├── index.html             # Frontend
+├── .env                   # Variables d'environnement (NE PAS commiter!)
+├── docker-compose.yml     # Configuration Docker
+├── Dockerfile             # Image Docker
+├── dev.bat               # Script de développement
+└── test-docker.bat       # Script de test Docker
 ```
 
-## API Documentation
+## 🐳 Déploiement Docker
 
-Once the server is running, visit `http://localhost:8000/docs` for interactive API documentation.
+```bash
+# Build et démarrage
+docker-compose up --build
 
-## Security Features
+# Arrêt
+docker-compose down
+```
 
-- **Sandboxed Execution**: Code runs in a restricted environment
-- **Timeout Protection**: Executions are limited to prevent infinite loops
-- **Input Validation**: All inputs are validated before processing
-- **Error Handling**: Comprehensive error handling and logging
+## 📚 Documentation
 
-## Next Steps
+- **API Backend** : http://localhost:8000/docs (quand le serveur tourne)
+- **Docker** : Voir [DOCKER_README.md](DOCKER_README.md)
+- **API Paradigm** : https://paradigm.lighton.ai/docs
 
-This MVP focuses on document search and chat completion tools. Future enhancements could include:
+## 🔒 Sécurité
 
-- Additional LightOn Paradigm tools
-- Workflow persistence (database storage)
-- User authentication and authorization
-- Rate limiting and quotas
-- More sophisticated code generation
-- Visual workflow builder
-- Webhook support for long-running workflows
+- **Sandboxed Execution**: Le code s'exécute dans un environnement restreint
+- **Timeout Protection**: Les exécutions sont limitées dans le temps
+- **Input Validation**: Toutes les entrées sont validées
+- **Error Handling**: Gestion complète des erreurs et logging
+
+## 🐛 Dépannage
+
+**Problème : "Port already in use"**
+- Les scripts `dev.bat` et `test-docker.bat` tuent automatiquement les anciens serveurs
+- Si problème persiste : `powershell "Get-Process python | Stop-Process -Force"`
+
+**Problème : "API key not configured"**
+- Vérifiez que le fichier `.env` existe à la racine du projet
+- Vérifiez que les clés API sont correctes
+- Redémarrez avec `dev.bat`
+
+## 📝 Technologies
+
+- **Backend** : FastAPI, Python 3.11+
+- **Frontend** : HTML/CSS/JavaScript vanilla
+- **AI** : Anthropic Claude API
+- **Document Processing** : LightOn Paradigm API
+- **Déploiement** : Vercel (prod), Docker (test)
