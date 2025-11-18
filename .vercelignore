@@ -20,3 +20,11 @@ coverage.xml
 .hypothesis/
 .idea/
 .vscode/
+
+# Ignore non-entry-point Python files in api/ to prevent Vercel from treating them as serverless functions
+api/__init__.py
+api/main.py
+api/config.py
+api/models.py
+api/api_clients.py
+api/workflow/
