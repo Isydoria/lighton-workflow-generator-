@@ -100,9 +100,13 @@ docker-compose down -v
 | `ANTHROPIC_API_KEY` | Clé API Anthropic pour Claude | Oui | - |
 | `PARADIGM_API_KEY` | Clé API LightOn Paradigm | Oui | - |
 | `PARADIGM_API_BASE_URL` | URL de base de l'API Paradigm | Non | `https://paradigm.lighton.ai` |
-| `UPSTASH_REDIS_REST_URL` | URL de l'API REST Upstash Redis | Non | - |
-| `UPSTASH_REDIS_REST_TOKEN` | Token d'authentification Upstash Redis | Non | - |
+| `KV_REST_API_URL` | URL Vercel KV (automatique si lié) | Non | - |
+| `KV_REST_API_TOKEN` | Token Vercel KV (automatique si lié) | Non | - |
+| `UPSTASH_REDIS_REST_URL` | URL Upstash Redis (config manuelle) | Non | - |
+| `UPSTASH_REDIS_REST_TOKEN` | Token Upstash Redis (config manuelle) | Non | - |
 | `PYTHONUNBUFFERED` | Désactive le buffering Python | Non | `1` |
+
+**Note** : Pour Redis, utilisez soit les variables Vercel KV (automatiques), soit les variables Upstash directes (manuelles). Le code supporte les deux conventions avec fallback automatique.
 
 ### Ports exposés
 
@@ -302,7 +306,7 @@ healthcheck:
 
 ---
 
-## 🗄️ Configuration Redis (Upstash)
+## 🗄️ Configuration Redis (Upstash / Vercel KV)
 
 ### Pourquoi Redis ?
 
@@ -311,9 +315,22 @@ L'application supporte Upstash Redis pour le stockage persistant des workflows, 
 - **Avec Redis** : Les workflows persistent entre les redémarrages de containers et les instances serverless
 - **Sans Redis** : Fallback vers stockage en mémoire (workflows perdus au redémarrage)
 
-### Configuration locale avec Redis
+### Configuration automatique avec Vercel KV
 
-Pour utiliser Redis en local avec Docker :
+**Option recommandée pour Vercel** :
+
+1. Dans votre projet Vercel, allez dans "Storage" → "Create Database" → "KV"
+2. Liez la base de données à votre projet
+3. Vercel crée automatiquement les variables :
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
+4. Le code détecte et utilise automatiquement ces variables
+
+**Aucune configuration manuelle nécessaire** ! Le code supporte nativement les variables Vercel KV.
+
+### Configuration manuelle avec Upstash
+
+**Option pour Docker ou configuration personnalisée** :
 
 ```bash
 # Ajoutez les variables dans votre .env
@@ -321,12 +338,30 @@ UPSTASH_REDIS_REST_URL=https://your-redis-instance.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-redis-token-here
 ```
 
-### Obtenir des credentials Upstash Redis
+**Obtenir des credentials Upstash** :
 
 1. Créer un compte sur [Upstash](https://upstash.com/)
 2. Créer une base de données Redis
 3. Copier l'URL REST et le token
 4. Ajouter les credentials dans `.env`
+
+### Compatibilité des variables
+
+Le code supporte **les deux conventions** automatiquement avec fallback :
+
+```python
+# Priorité 1 : Vercel KV (variables créées automatiquement)
+redis_url = os.getenv("KV_REST_API_URL")
+redis_token = os.getenv("KV_REST_API_TOKEN")
+
+# Priorité 2 : Upstash direct (configuration manuelle)
+if not redis_url:
+    redis_url = os.getenv("UPSTASH_REDIS_REST_URL")
+if not redis_token:
+    redis_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+```
+
+Ceci garantit une compatibilité maximale sans configuration supplémentaire.
 
 ### Mode développement sans Redis
 

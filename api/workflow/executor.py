@@ -12,12 +12,21 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 # Import Upstash Redis
+# Support both Vercel KV environment variables and direct Upstash variables
 try:
     from upstash_redis import Redis
+
+    # Try Vercel KV variables first (automatically set when linking Vercel KV)
+    redis_url = os.getenv("KV_REST_API_URL") or os.getenv("UPSTASH_REDIS_REST_URL")
+    redis_token = os.getenv("KV_REST_API_TOKEN") or os.getenv("UPSTASH_REDIS_REST_TOKEN")
+
     redis_client = Redis(
-        url=os.getenv("UPSTASH_REDIS_REST_URL"),
-        token=os.getenv("UPSTASH_REDIS_REST_TOKEN")
-    ) if os.getenv("UPSTASH_REDIS_REST_URL") else None
+        url=redis_url,
+        token=redis_token
+    ) if redis_url and redis_token else None
+
+    if redis_client:
+        logger.info(f"✅ Redis configured using {'Vercel KV' if os.getenv('KV_REST_API_URL') else 'Upstash'} variables")
 except ImportError:
     redis_client = None
     logger.warning("⚠️ upstash-redis not installed, using in-memory storage")

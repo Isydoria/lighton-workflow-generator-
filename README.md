@@ -56,6 +56,15 @@ Double-cliquez sur **`test-docker.bat`**
    ```bash
    ANTHROPIC_API_KEY=votre_clé_anthropic
    LIGHTON_API_KEY=votre_clé_lighton
+
+   # Redis (optionnel - pour persistance serverless)
+   # Vercel KV (automatique si lié depuis Vercel)
+   KV_REST_API_URL=https://your-redis.upstash.io
+   KV_REST_API_TOKEN=your_token_here
+
+   # OU Upstash direct (configuration manuelle)
+   UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+   UPSTASH_REDIS_REST_TOKEN=your_token_here
    ```
 
 3. **Démarrer le serveur**
@@ -146,8 +155,9 @@ python test_example.py
 └── test-docker.bat       # Script de test Docker
 ```
 
-## 🐳 Déploiement Docker
+## 🐳 Déploiement
 
+### Docker (test local)
 ```bash
 # Build et démarrage
 docker-compose up --build
@@ -155,6 +165,20 @@ docker-compose up --build
 # Arrêt
 docker-compose down
 ```
+
+### Vercel (production)
+1. Connectez votre repo GitHub/GitLab à Vercel
+2. Ajoutez les variables d'environnement dans Vercel :
+   - `ANTHROPIC_API_KEY`
+   - `LIGHTON_API_KEY`
+3. Liez Vercel KV (Storage) :
+   - Les variables `KV_REST_API_URL` et `KV_REST_API_TOKEN` sont créées automatiquement
+   - Le code détecte et utilise ces variables automatiquement
+4. Déployez : `git push` (automatique)
+
+**Note** : Le code supporte automatiquement les deux conventions :
+- Variables Vercel KV (créées automatiquement lors du linking)
+- Variables Upstash directes (configuration manuelle)
 
 ## 📚 Documentation
 
