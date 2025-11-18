@@ -36,18 +36,50 @@ class WorkflowGenerator:
         
         try:
             workflow.update_status("generating")
-            # Generate the code using Anthropic API
-            generated_code = await self._generate_code(description, context)
-            
-            # Validate the generated code
-            validation_result = await self._validate_code(generated_code)
-            if not validation_result["valid"]:
-                raise Exception(f"Generated code validation failed: {validation_result['error']}")
-            
-            workflow.generated_code = generated_code
-            workflow.update_status("ready")
-            return workflow
-            
+
+            # Retry mechanism for code generation (up to 3 attempts)
+            max_retries = 3
+            last_error = None
+
+            for attempt in range(max_retries):
+                try:
+                    # Generate the code using Anthropic API
+                    generated_code = await self._generate_code(description, context)
+
+                    # Validate the generated code
+                    validation_result = await self._validate_code(generated_code)
+
+                    if validation_result["valid"]:
+                        # Success! Code is valid
+                        workflow.generated_code = generated_code
+                        workflow.update_status("ready")
+                        return workflow
+                    else:
+                        # Validation failed, prepare for retry
+                        last_error = validation_result['error']
+                        if attempt < max_retries - 1:
+                            # Add error context for next attempt
+                            if context is None:
+                                context = {}
+                            context['previous_error'] = f"Previous attempt had syntax error: {last_error}"
+                            continue
+                        else:
+                            # Last attempt failed
+                            raise Exception(f"Generated code validation failed after {max_retries} attempts: {last_error}")
+
+                except Exception as e:
+                    if "validation failed" in str(e).lower():
+                        # Re-raise validation errors
+                        raise
+                    # Other errors during generation
+                    last_error = str(e)
+                    if attempt < max_retries - 1:
+                        continue
+                    raise
+
+            # Should not reach here, but just in case
+            raise Exception(f"Failed to generate valid code after {max_retries} attempts: {last_error}")
+
         except Exception as e:
             workflow.update_status("failed", str(e))
             raise e
