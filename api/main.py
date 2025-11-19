@@ -32,10 +32,11 @@ from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 import uvicorn
 
 from .config import settings
+from .pdf_generator import pdf_generator
 from .models import (
     WorkflowCreateRequest,
     WorkflowExecuteRequest,
@@ -477,6 +478,93 @@ async def get_execution(workflow_id: str, execution_id: str):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get execution: {str(e)}"
+        )
+
+@api_router.get("/workflows/{workflow_id}/executions/{execution_id}/pdf", tags=["Execution"])
+async def get_execution_pdf(workflow_id: str, execution_id: str):
+    """
+    Generate and download a PDF report for a workflow execution.
+
+    Creates a professional PDF document containing the workflow execution
+    results, status, timing information, and metadata. The PDF is suitable
+    for sharing with clients and includes no vendor branding.
+
+    Args:
+        workflow_id: ID of the parent workflow
+        execution_id: Unique identifier of the execution
+
+    Returns:
+        StreamingResponse: PDF file download with application/pdf content type
+
+    Raises:
+        HTTPException: 404 if workflow or execution not found,
+                      400 if execution doesn't belong to workflow,
+                      500 if PDF generation fails
+
+    Example:
+        GET /api/workflows/abc123/executions/def456/pdf
+
+        Downloads a file named: workflow_execution_report_abc123_def456.pdf
+    """
+    try:
+        # Get workflow details
+        workflow = workflow_executor.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow {workflow_id} not found"
+            )
+
+        # Get execution details
+        execution = workflow_executor.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Execution {execution_id} not found"
+            )
+
+        # Verify execution belongs to workflow
+        if execution.workflow_id != workflow_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Execution {execution_id} does not belong to workflow {workflow_id}"
+            )
+
+        logger.info(f"Generating PDF report for workflow {workflow_id}, execution {execution_id}")
+
+        # Generate PDF
+        pdf_buffer = pdf_generator.generate_report(
+            workflow_name=workflow.name or "Unnamed Workflow",
+            workflow_description=workflow.description,
+            execution_result=execution.result or "No result available",
+            execution_status=execution.status.value,
+            execution_time=execution.execution_time,
+            execution_date=execution.created_at,
+            workflow_id=workflow_id,
+            execution_id=execution_id
+        )
+
+        # Create filename
+        filename = f"workflow_execution_report_{workflow_id}_{execution_id}.pdf"
+
+        logger.info(f"PDF report generated successfully: {filename}")
+
+        # Return PDF as streaming response
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate PDF for execution {execution_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate PDF report: {str(e)}"
         )
 
 # File upload and management endpoints
