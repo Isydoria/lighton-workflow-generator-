@@ -622,7 +622,45 @@ ENHANCEMENT GUIDELINES:
    - STEP Xa: First operation (RUNS IN PARALLEL with Xb, Xc)
    - STEP Xb: Second operation (RUNS IN PARALLEL with Xa, Xc)
    - STEP Xc: Third operation (RUNS IN PARALLEL with Xa, Xb)
-   - STEP X+1: Combine results (sequential - waits for parallel steps)
+   - STEP X+1: Combine and clean results (sequential - waits for parallel steps)
+
+   **🧹 CRITICAL: RESULT COMPILATION REQUIREMENTS (for STEP X+1):**
+   When compiling results from parallel steps, the compilation step MUST:
+   - ✅ Remove ALL duplicates (check across all parallel results)
+   - ✅ Use CONSISTENT formatting for all items (same structure for names, dates, lieux)
+   - ✅ Remove internal AI notes/comments (e.g., "Ne pas mentionner...", "Voici l'analyse...")
+   - ✅ Create CLEAR sections with simple bullet points or numbered lists
+   - ✅ Keep ONLY user-relevant information (no metadata, no processing notes)
+   - ✅ Use simple, readable format (avoid heavy markdown, avoid "ENTITÉ:", "CATÉGORIE:" labels)
+   - ✅ Return final result as clean, structured text ready for end-user display
+
+   **GOOD compilation format example:**
+   ```
+   NOMS EXTRAITS:
+   - Marie Dupont
+   - Jean Martin
+   - LightOn (organisation)
+
+   DATES EXTRAITES:
+   - 15 janvier 2025
+   - 20 février 2025
+
+   LIEUX EXTRAITS:
+   - Paris
+   - Lyon
+   ```
+
+   **BAD compilation format (avoid):**
+   ```
+   SECTION 1: NOMS
+   Voici l'analyse... [internal note]
+   - ENTITÉ: Marie Dupont
+     CATÉGORIE: Personne physique
+     CONTEXTE: ... [too verbose]
+   - ENTITÉ: Paris [DUPLICATE - also appears in LIEUX]
+   Ne pas mentionner... [internal AI note]
+   MÉTADONNÉES DU RAPPORT... [unnecessary metadata]
+   ```
 
    **DETECTION EXAMPLES** (recognize automatically):
    User: "Extraire le nom, l'adresse et le téléphone"
