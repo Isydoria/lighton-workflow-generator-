@@ -667,7 +667,12 @@ ENHANCEMENT GUIDELINES:
    → MUST create: STEP 1a (nom), STEP 1b (adresse), STEP 1c (téléphone) IN PARALLEL
 
    User: "Analyser un texte et extraire les noms, dates et lieux"
-   → MUST create: STEP 1a (noms), STEP 1b (dates), STEP 1c (lieux) IN PARALLEL
+   → MUST create: STEP 1a (noms de personnes/organisations), STEP 1b (dates), STEP 1c (lieux géographiques) IN PARALLEL
+   → BE PRECISE: "Paris" and "Lyon" are LIEUX (places), NOT noms (names)
+   → Example text: "Le 15 janvier 2025, Marie Dupont a rencontré Jean Martin à Paris"
+     - NOMS: Marie Dupont, Jean Martin
+     - DATES: 15 janvier 2025
+     - LIEUX: Paris
 
 3. For each step, clearly specify:
    - What action will be performed
