@@ -98,6 +98,7 @@ CRITICAL INSTRUCTIONS:
 5. *** NEVER USE 'pass' OR PLACEHOLDER COMMENTS - IMPLEMENT ALL FUNCTIONS COMPLETELY ***
 6. *** EVERY FUNCTION MUST BE FULLY IMPLEMENTED WITH WORKING CODE ***
 7. *** NO STUB FUNCTIONS - ALL CODE MUST BE EXECUTABLE AND FUNCTIONAL ***
+8. *** ALWAYS USE asyncio.gather() FOR INDEPENDENT PARALLEL TASKS - IMPROVES PERFORMANCE 3-10x ***
 
 REQUIRED STRUCTURE:
 ```python
@@ -255,6 +256,65 @@ AVAILABLE API METHODS:
 4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None) - Analyze images in documents with AI-powered visual analysis
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
+
+🚀 PARALLELIZATION: WHEN AND HOW TO USE asyncio.gather()
+
+WHEN TO PARALLELIZE:
+- ✅ Multiple INDEPENDENT tasks (tasks that don't depend on each other's results)
+- ✅ Multiple document searches on different topics
+- ✅ Multiple document analyses on different documents
+- ✅ Multiple validation checks that can run simultaneously
+- ❌ DON'T parallelize tasks where one depends on the output of another
+
+CORRECT PARALLEL EXECUTION (using asyncio.gather()):
+# Example: Checking 3 different fields in parallel
+name_check, address_check, phone_check = await asyncio.gather(
+    paradigm_client.document_search("Extract company name", file_ids=document_ids),
+    paradigm_client.document_search("Extract company address", file_ids=document_ids),
+    paradigm_client.document_search("Extract company phone", file_ids=document_ids)
+)
+
+# Example: Analyzing multiple documents in parallel (respecting 5-doc limit per call)
+doc_analyses = await asyncio.gather(
+    paradigm_client.analyze_documents_with_polling("Summarize document", [document_ids[0]]),
+    paradigm_client.analyze_documents_with_polling("Extract key dates", [document_ids[1]]),
+    paradigm_client.analyze_documents_with_polling("Find signatures", [document_ids[2]])
+)
+
+# Example: Multiple comparison checks in parallel
+checks = await asyncio.gather(
+    paradigm_client.chat_completion(f"Compare name: Doc1={name1} vs Doc2={name2}. Are they identical?"),
+    paradigm_client.chat_completion(f"Compare address: Doc1={addr1} vs Doc2={addr2}. Are they identical?"),
+    paradigm_client.chat_completion(f"Compare phone: Doc1={phone1} vs Doc2={phone2}. Are they identical?")
+)
+
+PERFORMANCE BENEFITS:
+- Sequential: 3 tasks × 5 seconds each = 15 seconds total
+- Parallel: max(5, 5, 5) seconds = 5 seconds total (3x faster!)
+
+INCORRECT PARALLELIZATION (DON'T DO THIS):
+# ❌ Task 2 depends on Task 1's result - MUST be sequential
+result1 = await task1()
+result2 = await task2(result1)  # Needs result1, can't parallelize
+
+# ❌ Using asyncio.gather() when tasks are dependent
+result1, result2 = await asyncio.gather(
+    task1(),
+    task2(result1)  # ERROR: result1 doesn't exist yet!
+)
+
+HYBRID APPROACH (parallel groups with sequential dependencies):
+# Step 1: Parallel extraction from 3 documents
+doc1_info, doc2_info, doc3_info = await asyncio.gather(
+    paradigm_client.document_search("Extract info", file_ids=[doc1_id]),
+    paradigm_client.document_search("Extract info", file_ids=[doc2_id]),
+    paradigm_client.document_search("Extract info", file_ids=[doc3_id])
+)
+
+# Step 2: Sequential comparison using extracted data
+comparison = await paradigm_client.chat_completion(
+    f"Compare these documents: {doc1_info}, {doc2_info}, {doc3_info}"
+)
 
 CONTEXT PRESERVATION IN API PROMPTS:
 When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
