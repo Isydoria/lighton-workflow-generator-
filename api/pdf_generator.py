@@ -168,28 +168,47 @@ class PDFReportGenerator:
         # Section 1: Workflow Information
         story.append(Paragraph("Workflow Information", self.styles['SectionHeading']))
 
-        workflow_info_data = [
-            ["Workflow Name:", workflow_name or "Unnamed Workflow"],
-            ["Description:", workflow_description or "No description provided"],
-        ]
+        # Workflow Name
+        story.append(Paragraph(
+            f"<b>Workflow Name:</b> {workflow_name or 'Unnamed Workflow'}",
+            self.styles['CustomBodyText']
+        ))
 
-        if workflow_id:
-            workflow_info_data.append(["Workflow ID:", workflow_id])
-        if execution_id:
-            workflow_info_data.append(["Execution ID:", execution_id])
+        # Description - use Paragraph instead of Table to allow page breaks
+        story.append(Paragraph("<b>Description:</b>", self.styles['CustomBodyText']))
 
-        workflow_table = Table(workflow_info_data, colWidths=[4*cm, 13*cm])
-        workflow_table.setStyle(TableStyle([
-            ('FONT', (0, 0), (0, -1), 'Helvetica-Bold', 11),
-            ('FONT', (1, 0), (1, -1), 'Helvetica', 11),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#2c3e50')),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ]))
+        # Escape and format description text
+        description_text = workflow_description or "No description provided"
+        # Escape XML special characters
+        safe_description = (description_text
+                           .replace('&', '&amp;')
+                           .replace('<', '&lt;')
+                           .replace('>', '&gt;')
+                           .replace('\n', '<br/>'))  # Preserve line breaks
 
-        story.append(workflow_table)
+        story.append(Paragraph(safe_description, self.styles['CustomBodyText']))
+        story.append(Spacer(1, 0.3*cm))
+
+        # IDs in a table (these are short and won't cause issues)
+        if workflow_id or execution_id:
+            id_data = []
+            if workflow_id:
+                id_data.append(["Workflow ID:", workflow_id])
+            if execution_id:
+                id_data.append(["Execution ID:", execution_id])
+
+            id_table = Table(id_data, colWidths=[4*cm, 13*cm])
+            id_table.setStyle(TableStyle([
+                ('FONT', (0, 0), (0, -1), 'Helvetica-Bold', 11),
+                ('FONT', (1, 0), (1, -1), 'Helvetica', 11),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#2c3e50')),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            story.append(id_table)
+
         story.append(Spacer(1, 1*cm))
 
         # Section 2: Execution Status
