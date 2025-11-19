@@ -1542,17 +1542,23 @@ if __name__ == "__main__":
                     
                     if (data.status === 'completed') {
                         addLog('✅ WORKFLOW EXECUTION COMPLETED SUCCESSFULLY', 'response');
-                        
+
                         let resultMessage = `✅ Workflow executed successfully!\n\nExecution ID: ${data.execution_id}\nStatus: ${data.status}\nExecution Time: ${executionTime}`;
-                        
+
                         if (hasAttachments) {
                             resultMessage += `\nProcessed ${attachmentIds.length} attached document(s)`;
                         }
-                        
+
                         resultMessage += `\n\n=== RESULT ===\n${data.result}`;
-                        
+
                         showResult(resultDiv, resultMessage, 'success');
-                        
+
+                        // Add PDF download button
+                        const pdfButtonDiv = document.createElement('div');
+                        pdfButtonDiv.style.cssText = 'margin-top: 15px;';
+                        pdfButtonDiv.innerHTML = `<button onclick="downloadPDF('${currentWorkflowId}', '${data.execution_id}')" style="background: #28a745; padding: 12px 20px; font-size: 14px; display: inline-flex; align-items: center; gap: 8px;">📄 Download PDF Report</button>`;
+                        resultDiv.appendChild(pdfButtonDiv);
+
                         // Add tip about Paradigm tool
                         const tipDiv = document.createElement('div');
                         tipDiv.style.cssText = 'background: #e3f2fd; padding: 10px; border-radius: 4px; margin-top: 10px; border-left: 4px solid #2196f3; font-size: 12px;';
@@ -1609,8 +1615,26 @@ if __name__ == "__main__":
         }
 
         /**
+         * Download PDF report for a workflow execution.
+         * Opens the PDF download URL in a new window/tab which triggers browser download.
+         *
+         * @param {string} workflowId - ID of the workflow
+         * @param {string} executionId - ID of the execution
+         */
+        function downloadPDF(workflowId, executionId) {
+            addLog(`📄 Downloading PDF report for execution ${executionId}...`, 'info');
+
+            const pdfUrl = `${API_BASE}/workflows/${workflowId}/executions/${executionId}/pdf`;
+
+            // Open in new window to trigger download
+            window.open(pdfUrl, '_blank');
+
+            addLog(`✅ PDF download initiated`, 'response');
+        }
+
+        /**
          * Display result messages in the UI with appropriate styling.
-         * 
+         *
          * @param {Element} element - DOM element to display result in
          * @param {string} message - Message to display
          * @param {string} type - Result type (success, error, loading)
