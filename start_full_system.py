@@ -85,7 +85,8 @@ def start_full_system():
         print("[2/2] Starting backend API (port 8000)...")
         backend_process = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "api.index:app",
-             "--host", "0.0.0.0", "--port", "8000"],
+             "--host", "0.0.0.0", "--port", "8000",
+             "--timeout-keep-alive", "300"],  # 5 minutes timeout for long-running AI requests
             cwd=project_root,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE

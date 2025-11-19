@@ -98,6 +98,7 @@ CRITICAL INSTRUCTIONS:
 5. *** NEVER USE 'pass' OR PLACEHOLDER COMMENTS - IMPLEMENT ALL FUNCTIONS COMPLETELY ***
 6. *** EVERY FUNCTION MUST BE FULLY IMPLEMENTED WITH WORKING CODE ***
 7. *** NO STUB FUNCTIONS - ALL CODE MUST BE EXECUTABLE AND FUNCTIONAL ***
+8. *** ALWAYS USE asyncio.gather() FOR INDEPENDENT PARALLEL TASKS - IMPROVES PERFORMANCE 3-10x ***
 
 REQUIRED STRUCTURE:
 ```python
@@ -255,6 +256,123 @@ AVAILABLE API METHODS:
 4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None) - Analyze images in documents with AI-powered visual analysis
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
+
+🚀 PARALLELIZATION: WHEN AND HOW TO USE asyncio.gather()
+
+WHEN TO PARALLELIZE:
+- ✅ Multiple INDEPENDENT tasks (tasks that don't depend on each other's results)
+- ✅ Multiple document searches on different topics
+- ✅ Multiple document analyses on different documents
+- ✅ Multiple validation checks that can run simultaneously
+- ❌ DON'T parallelize tasks where one depends on the output of another
+
+CORRECT PARALLEL EXECUTION (using asyncio.gather()):
+# Example: Checking 3 different fields in parallel
+name_check, address_check, phone_check = await asyncio.gather(
+    paradigm_client.document_search("Extract company name", file_ids=document_ids),
+    paradigm_client.document_search("Extract company address", file_ids=document_ids),
+    paradigm_client.document_search("Extract company phone", file_ids=document_ids)
+)
+
+# Example: Analyzing multiple documents in parallel (respecting 5-doc limit per call)
+doc_analyses = await asyncio.gather(
+    paradigm_client.analyze_documents_with_polling("Summarize document", [document_ids[0]]),
+    paradigm_client.analyze_documents_with_polling("Extract key dates", [document_ids[1]]),
+    paradigm_client.analyze_documents_with_polling("Find signatures", [document_ids[2]])
+)
+
+# Example: Multiple comparison checks in parallel
+checks = await asyncio.gather(
+    paradigm_client.chat_completion(f"Compare name: Doc1={name1} vs Doc2={name2}. Are they identical?"),
+    paradigm_client.chat_completion(f"Compare address: Doc1={addr1} vs Doc2={addr2}. Are they identical?"),
+    paradigm_client.chat_completion(f"Compare phone: Doc1={phone1} vs Doc2={phone2}. Are they identical?")
+)
+
+PERFORMANCE BENEFITS:
+- Sequential: 3 tasks × 5 seconds each = 15 seconds total
+- Parallel: max(5, 5, 5) seconds = 5 seconds total (3x faster!)
+
+INCORRECT PARALLELIZATION (DON'T DO THIS):
+# ❌ Task 2 depends on Task 1's result - MUST be sequential
+result1 = await task1()
+result2 = await task2(result1)  # Needs result1, can't parallelize
+
+# ❌ Using asyncio.gather() when tasks are dependent
+result1, result2 = await asyncio.gather(
+    task1(),
+    task2(result1)  # ERROR: result1 doesn't exist yet!
+)
+
+HYBRID APPROACH (parallel groups with sequential dependencies):
+# Step 1: Parallel extraction from 3 documents
+doc1_info, doc2_info, doc3_info = await asyncio.gather(
+    paradigm_client.document_search("Extract info", file_ids=[doc1_id]),
+    paradigm_client.document_search("Extract info", file_ids=[doc2_id]),
+    paradigm_client.document_search("Extract info", file_ids=[doc3_id])
+)
+
+# Step 2: Sequential comparison using extracted data
+comparison = await paradigm_client.chat_completion(
+    f"Compare these documents: {doc1_info}, {doc2_info}, {doc3_info}"
+)
+
+🎯 INTELLIGENT PARALLELIZATION DETECTION:
+
+Before generating code, ALWAYS analyze the workflow description to identify independent sub-tasks that can run in parallel.
+
+DETECTION RULES:
+1. **Multiple fields/attributes extraction** → PARALLELIZE each field
+   Examples: "extract name, address, phone" → 3 parallel tasks
+
+2. **Multiple documents with same operation** → PARALLELIZE per document
+   Examples: "analyze 3 documents", "compare docs A, B, C" → parallel analysis
+
+3. **Multiple independent checks/validations** → PARALLELIZE each check
+   Examples: "verify name matches, check address format, validate phone" → 3 parallel validations
+
+4. **Sequential dependencies** → DO NOT PARALLELIZE
+   Examples: "extract data THEN compare THEN summarize" → must be sequential
+
+LANGUAGE-AGNOSTIC DETECTION (works in French, English, etc.):
+
+EXAMPLE 1 - French: "Extraire le nom, l'adresse et le téléphone du document"
+→ ANALYSIS: User wants 3 fields (nom, adresse, téléphone)
+→ DETECTION: 3 independent extraction tasks
+→ CODE: Use asyncio.gather() with 3 document_search or analyze_documents_with_polling calls
+
+EXAMPLE 2 - French: "Extraire le nom et l'adresse de 5 documents différents"
+→ ANALYSIS: Same operation (extract name+address) on 5 documents
+→ DETECTION: 5 independent document analyses
+→ CODE: Use asyncio.gather() to process 5 documents in parallel
+
+EXAMPLE 3 - English: "Compare company name from Doc A with Doc B"
+→ ANALYSIS: Extract from A → Extract from B → Compare (sequential dependency)
+→ DETECTION: Partial parallelization possible (extract A and B in parallel, then compare)
+→ CODE: asyncio.gather(extract_A, extract_B) then compare_results
+
+EXAMPLE 4 - French: "Vérifier que le nom correspond, l'adresse est valide et le téléphone est au bon format"
+→ ANALYSIS: 3 independent validation checks
+→ DETECTION: 3 parallel validation tasks
+→ CODE: Use asyncio.gather() with 3 chat_completion calls for validation
+
+KEYWORDS INDICATING MULTIPLE TASKS (detect in ANY language):
+- Lists with commas: "X, Y, Z" or "X, Y et Z" or "X and Y"
+- Multiple nouns: "nom adresse téléphone", "name address phone"
+- Numbers: "3 documents", "5 checks", "plusieurs fichiers"
+- Conjunctions: "et/and", "puis/then", "avec/with"
+
+IMPLEMENTATION PATTERN:
+# When you detect multiple independent tasks, ALWAYS structure code like this:
+task1 = api_call_1()
+task2 = api_call_2()
+task3 = api_call_3()
+
+result1, result2, result3 = await asyncio.gather(task1, task2, task3)
+
+# NOT like this (sequential - slower):
+result1 = await api_call_1()
+result2 = await api_call_2()
+result3 = await api_call_3()
 
 CONTEXT PRESERVATION IN API PROMPTS:
 When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
@@ -486,7 +604,21 @@ AVAILABLE PARADIGM API TOOLS:
 
 ENHANCEMENT GUIDELINES:
 1. Break down the workflow into clear, specific steps
-2. For each step, clearly specify:
+2. **PARALLELIZATION DETECTION**: When the user asks to extract/analyze/check MULTIPLE INDEPENDENT items:
+   - ✅ DETECT: "extract name, address, phone" → 3 independent extractions
+   - ✅ DETECT: "analyze documents A, B, C" → 3 independent analyses
+   - ✅ DETECT: "verify field1, field2, field3" → 3 independent validations
+   - ✅ CREATE SUB-STEPS: Break into parallel sub-steps (STEP 1a, 1b, 1c) with explicit note "These can run in PARALLEL"
+   - ❌ DON'T SPLIT: "extract data THEN compare" → sequential dependency, keep as single step
+
+   EXAMPLE of parallel detection:
+   User: "Extraire le nom, l'adresse et le téléphone du document"
+   → STEP 1a: Extract name (CAN RUN IN PARALLEL with 1b and 1c)
+   → STEP 1b: Extract address (CAN RUN IN PARALLEL with 1a and 1c)
+   → STEP 1c: Extract phone (CAN RUN IN PARALLEL with 1a and 1b)
+   → STEP 2: Format and return results (sequential - waits for Step 1)
+
+3. For each step, clearly specify:
    - What action will be performed
    - Which Paradigm API tool will be used
    - What input/output is expected
@@ -494,16 +626,17 @@ ENHANCEMENT GUIDELINES:
    - All conditional logic (if/then/else statements)
    - All rules, constraints, and requirements
    - All edge cases and exception handling
+   - **If the step can run in PARALLEL with other steps, explicitly state: "CAN RUN IN PARALLEL"**
 
-3. CRITICAL: Preserve EVERY detail from the original description with ZERO information loss
-4. Capture ALL conditional statements ("if this, then that", "when X occurs, do Y", etc.)
-5. Include ALL specific rules, constraints, validation requirements, and business logic
-6. Preserve ALL quantities, percentages, dates, formats, and technical specifications
-7. Keep ALL specific terms, names, and terminology EXACTLY as provided
-8. Document ALL decision points, branching logic, and alternative paths
-9. Include ALL error conditions, fallback mechanisms, and exception scenarios
-10. Maintain ALL dependencies between steps and prerequisite conditions
-11. Capture ALL data validation rules, format requirements, and compliance checks
+4. CRITICAL: Preserve EVERY detail from the original description with ZERO information loss
+5. Capture ALL conditional statements ("if this, then that", "when X occurs, do Y", etc.)
+6. Include ALL specific rules, constraints, validation requirements, and business logic
+7. Preserve ALL quantities, percentages, dates, formats, and technical specifications
+8. Keep ALL specific terms, names, and terminology EXACTLY as provided
+9. Document ALL decision points, branching logic, and alternative paths
+10. Include ALL error conditions, fallback mechanisms, and exception scenarios
+11. Maintain ALL dependencies between steps and prerequisite conditions
+12. Capture ALL data validation rules, format requirements, and compliance checks
 
 INFORMATION PRESERVATION REQUIREMENTS:
 - Document names (e.g., DC4, JOUE, BOAMP) must remain unchanged
