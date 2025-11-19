@@ -316,6 +316,64 @@ comparison = await paradigm_client.chat_completion(
     f"Compare these documents: {doc1_info}, {doc2_info}, {doc3_info}"
 )
 
+🎯 INTELLIGENT PARALLELIZATION DETECTION:
+
+Before generating code, ALWAYS analyze the workflow description to identify independent sub-tasks that can run in parallel.
+
+DETECTION RULES:
+1. **Multiple fields/attributes extraction** → PARALLELIZE each field
+   Examples: "extract name, address, phone" → 3 parallel tasks
+
+2. **Multiple documents with same operation** → PARALLELIZE per document
+   Examples: "analyze 3 documents", "compare docs A, B, C" → parallel analysis
+
+3. **Multiple independent checks/validations** → PARALLELIZE each check
+   Examples: "verify name matches, check address format, validate phone" → 3 parallel validations
+
+4. **Sequential dependencies** → DO NOT PARALLELIZE
+   Examples: "extract data THEN compare THEN summarize" → must be sequential
+
+LANGUAGE-AGNOSTIC DETECTION (works in French, English, etc.):
+
+EXAMPLE 1 - French: "Extraire le nom, l'adresse et le téléphone du document"
+→ ANALYSIS: User wants 3 fields (nom, adresse, téléphone)
+→ DETECTION: 3 independent extraction tasks
+→ CODE: Use asyncio.gather() with 3 document_search or analyze_documents_with_polling calls
+
+EXAMPLE 2 - French: "Extraire le nom et l'adresse de 5 documents différents"
+→ ANALYSIS: Same operation (extract name+address) on 5 documents
+→ DETECTION: 5 independent document analyses
+→ CODE: Use asyncio.gather() to process 5 documents in parallel
+
+EXAMPLE 3 - English: "Compare company name from Doc A with Doc B"
+→ ANALYSIS: Extract from A → Extract from B → Compare (sequential dependency)
+→ DETECTION: Partial parallelization possible (extract A and B in parallel, then compare)
+→ CODE: asyncio.gather(extract_A, extract_B) then compare_results
+
+EXAMPLE 4 - French: "Vérifier que le nom correspond, l'adresse est valide et le téléphone est au bon format"
+→ ANALYSIS: 3 independent validation checks
+→ DETECTION: 3 parallel validation tasks
+→ CODE: Use asyncio.gather() with 3 chat_completion calls for validation
+
+KEYWORDS INDICATING MULTIPLE TASKS (detect in ANY language):
+- Lists with commas: "X, Y, Z" or "X, Y et Z" or "X and Y"
+- Multiple nouns: "nom adresse téléphone", "name address phone"
+- Numbers: "3 documents", "5 checks", "plusieurs fichiers"
+- Conjunctions: "et/and", "puis/then", "avec/with"
+
+IMPLEMENTATION PATTERN:
+# When you detect multiple independent tasks, ALWAYS structure code like this:
+task1 = api_call_1()
+task2 = api_call_2()
+task3 = api_call_3()
+
+result1, result2, result3 = await asyncio.gather(task1, task2, task3)
+
+# NOT like this (sequential - slower):
+result1 = await api_call_1()
+result2 = await api_call_2()
+result3 = await api_call_3()
+
 CONTEXT PRESERVATION IN API PROMPTS:
 When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
 
