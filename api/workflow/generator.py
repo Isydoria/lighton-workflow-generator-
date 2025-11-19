@@ -604,7 +604,21 @@ AVAILABLE PARADIGM API TOOLS:
 
 ENHANCEMENT GUIDELINES:
 1. Break down the workflow into clear, specific steps
-2. For each step, clearly specify:
+2. **PARALLELIZATION DETECTION**: When the user asks to extract/analyze/check MULTIPLE INDEPENDENT items:
+   - ✅ DETECT: "extract name, address, phone" → 3 independent extractions
+   - ✅ DETECT: "analyze documents A, B, C" → 3 independent analyses
+   - ✅ DETECT: "verify field1, field2, field3" → 3 independent validations
+   - ✅ CREATE SUB-STEPS: Break into parallel sub-steps (STEP 1a, 1b, 1c) with explicit note "These can run in PARALLEL"
+   - ❌ DON'T SPLIT: "extract data THEN compare" → sequential dependency, keep as single step
+
+   EXAMPLE of parallel detection:
+   User: "Extraire le nom, l'adresse et le téléphone du document"
+   → STEP 1a: Extract name (CAN RUN IN PARALLEL with 1b and 1c)
+   → STEP 1b: Extract address (CAN RUN IN PARALLEL with 1a and 1c)
+   → STEP 1c: Extract phone (CAN RUN IN PARALLEL with 1a and 1b)
+   → STEP 2: Format and return results (sequential - waits for Step 1)
+
+3. For each step, clearly specify:
    - What action will be performed
    - Which Paradigm API tool will be used
    - What input/output is expected
@@ -612,16 +626,17 @@ ENHANCEMENT GUIDELINES:
    - All conditional logic (if/then/else statements)
    - All rules, constraints, and requirements
    - All edge cases and exception handling
+   - **If the step can run in PARALLEL with other steps, explicitly state: "CAN RUN IN PARALLEL"**
 
-3. CRITICAL: Preserve EVERY detail from the original description with ZERO information loss
-4. Capture ALL conditional statements ("if this, then that", "when X occurs, do Y", etc.)
-5. Include ALL specific rules, constraints, validation requirements, and business logic
-6. Preserve ALL quantities, percentages, dates, formats, and technical specifications
-7. Keep ALL specific terms, names, and terminology EXACTLY as provided
-8. Document ALL decision points, branching logic, and alternative paths
-9. Include ALL error conditions, fallback mechanisms, and exception scenarios
-10. Maintain ALL dependencies between steps and prerequisite conditions
-11. Capture ALL data validation rules, format requirements, and compliance checks
+4. CRITICAL: Preserve EVERY detail from the original description with ZERO information loss
+5. Capture ALL conditional statements ("if this, then that", "when X occurs, do Y", etc.)
+6. Include ALL specific rules, constraints, validation requirements, and business logic
+7. Preserve ALL quantities, percentages, dates, formats, and technical specifications
+8. Keep ALL specific terms, names, and terminology EXACTLY as provided
+9. Document ALL decision points, branching logic, and alternative paths
+10. Include ALL error conditions, fallback mechanisms, and exception scenarios
+11. Maintain ALL dependencies between steps and prerequisite conditions
+12. Capture ALL data validation rules, format requirements, and compliance checks
 
 INFORMATION PRESERVATION REQUIREMENTS:
 - Document names (e.g., DC4, JOUE, BOAMP) must remain unchanged
