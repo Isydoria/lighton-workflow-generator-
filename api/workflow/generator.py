@@ -604,19 +604,32 @@ AVAILABLE PARADIGM API TOOLS:
 
 ENHANCEMENT GUIDELINES:
 1. Break down the workflow into clear, specific steps
-2. **PARALLELIZATION DETECTION**: When the user asks to extract/analyze/check MULTIPLE INDEPENDENT items:
-   - ✅ DETECT: "extract name, address, phone" → 3 independent extractions
-   - ✅ DETECT: "analyze documents A, B, C" → 3 independent analyses
-   - ✅ DETECT: "verify field1, field2, field3" → 3 independent validations
-   - ✅ CREATE SUB-STEPS: Break into parallel sub-steps (STEP 1a, 1b, 1c) with explicit note "These can run in PARALLEL"
-   - ❌ DON'T SPLIT: "extract data THEN compare" → sequential dependency, keep as single step
+2. **⚡ MANDATORY PARALLELIZATION OPTIMIZATION ⚡**:
+   CRITICAL: ALWAYS identify and parallelize independent operations to maximize execution speed.
 
-   EXAMPLE of parallel detection:
-   User: "Extraire le nom, l'adresse et le téléphone du document"
-   → STEP 1a: Extract name (CAN RUN IN PARALLEL with 1b and 1c)
-   → STEP 1b: Extract address (CAN RUN IN PARALLEL with 1a and 1c)
-   → STEP 1c: Extract phone (CAN RUN IN PARALLEL with 1a and 1b)
-   → STEP 2: Format and return results (sequential - waits for Step 1)
+   **AUTOMATIC DETECTION RULES (apply WITHOUT user asking):**
+   - ✅ Multiple data extractions → MUST create parallel sub-steps (STEP 1a, 1b, 1c)
+   - ✅ Multiple document analyses → MUST parallelize each analysis
+   - ✅ Multiple validation checks → MUST run validations in parallel
+   - ✅ Multiple API calls with independent inputs → MUST execute concurrently
+   - ✅ Lists with commas ("X, Y, Z" or "X, Y et Z") → AUTOMATICALLY parallelize
+   - ❌ Sequential dependencies ("extract THEN compare") → Keep sequential
+
+   **PERFORMANCE IMPACT**: Parallelization provides 3-10x speed improvement
+
+   **MANDATORY PARALLEL STRUCTURE:**
+   When detecting multiple independent operations, ALWAYS structure as:
+   - STEP Xa: First operation (RUNS IN PARALLEL with Xb, Xc)
+   - STEP Xb: Second operation (RUNS IN PARALLEL with Xa, Xc)
+   - STEP Xc: Third operation (RUNS IN PARALLEL with Xa, Xb)
+   - STEP X+1: Combine results (sequential - waits for parallel steps)
+
+   **DETECTION EXAMPLES** (recognize automatically):
+   User: "Extraire le nom, l'adresse et le téléphone"
+   → MUST create: STEP 1a (nom), STEP 1b (adresse), STEP 1c (téléphone) IN PARALLEL
+
+   User: "Analyser un texte et extraire les noms, dates et lieux"
+   → MUST create: STEP 1a (noms), STEP 1b (dates), STEP 1c (lieux) IN PARALLEL
 
 3. For each step, clearly specify:
    - What action will be performed
