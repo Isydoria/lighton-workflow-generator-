@@ -293,6 +293,8 @@ Architecture:
             margin-bottom: 15px;
         }
     </style>
+    <!-- jsPDF Library for client-side PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
     <h1>
@@ -1615,21 +1617,184 @@ if __name__ == "__main__":
         }
 
         /**
-         * Download PDF report for a workflow execution.
-         * Opens the PDF download URL in a new window/tab which triggers browser download.
+         * Generate and download PDF report for a workflow execution using jsPDF (client-side).
+         * This generates a simplified PDF containing ONLY the execution results (no technical workflow description).
          *
          * @param {string} workflowId - ID of the workflow
          * @param {string} executionId - ID of the execution
          */
-        function downloadPDF(workflowId, executionId) {
-            addLog(`📄 Downloading PDF report for execution ${executionId}...`, 'info');
+        async function downloadPDF(workflowId, executionId) {
+            addLog(`📄 Generating PDF report for execution ${executionId}...`, 'info');
 
-            const pdfUrl = `${API_BASE}/workflows/${workflowId}/executions/${executionId}/pdf`;
+            try {
+                // 1. Fetch execution data from API
+                const response = await fetch(`${API_BASE}/workflows/${workflowId}/executions/${executionId}`);
 
-            // Open in new window to trigger download
-            window.open(pdfUrl, '_blank');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch execution data: ${response.status}`);
+                }
 
-            addLog(`✅ PDF download initiated`, 'response');
+                const execution = await response.json();
+
+                // 2. Create new PDF document (client-side)
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+
+                // 3. Add title
+                doc.setFontSize(20);
+                doc.setFont('helvetica', 'bold');
+                doc.text("Résultat de l'analyse", 105, 20, { align: "center" });
+
+                // 4. Add generation date
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(100, 100, 100);
+                doc.text(`Généré le ${new Date().toLocaleString('fr-FR', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                })}`, 105, 28, { align: "center" });
+
+                // 5. Add execution info
+                doc.setFontSize(9);
+                doc.setTextColor(150, 150, 150);
+                doc.text(`Execution ID: ${executionId}`, 105, 35, { align: "center" });
+
+                // 6. Add separator line
+                doc.setDrawColor(200, 200, 200);
+                doc.line(20, 40, 190, 40);
+
+                // 7. Add execution status
+                let yPosition = 50;
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text("Statut:", 20, yPosition);
+
+                doc.setFont('helvetica', 'normal');
+                const status = execution.status || 'unknown';
+                const statusColor = status === 'completed' ? [40, 167, 69] : [220, 53, 69];
+                doc.setTextColor(...statusColor);
+                doc.text(status.toUpperCase(), 45, yPosition);
+
+                // 8. Add execution time
+                yPosition += 8;
+                doc.setTextColor(0, 0, 0);
+                doc.setFont('helvetica', 'bold');
+                doc.text("Temps d'exécution:", 20, yPosition);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`${execution.execution_time || 0} secondes`, 65, yPosition);
+
+                // 9. Add separator
+                yPosition += 8;
+                doc.setDrawColor(200, 200, 200);
+                doc.line(20, yPosition, 190, yPosition);
+
+                // 10. Add results section
+                yPosition += 10;
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text("Résultats:", 20, yPosition);
+
+                // 11. Add result content (simplified, no technical details)
+                yPosition += 10;
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+
+                const result = execution.result || "Aucun résultat disponible";
+
+                // Parse and format the result text
+                const lines = result.split('\n');
+                const maxWidth = 170;
+
+                for (let line of lines) {
+                    // Check if we need a new page
+                    if (yPosition > 270) {
+                        doc.addPage();
+                        yPosition = 20;
+                    }
+
+                    // Handle section headers (lines starting with ##)
+                    if (line.trim().startsWith('##')) {
+                        yPosition += 5; // Add spacing before section
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(12);
+                        const headerText = line.replace(/^#+\s*/, '').trim();
+                        doc.text(headerText, 20, yPosition);
+                        yPosition += 7;
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(10);
+                    }
+                    // Handle bullet points
+                    else if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+                        const bulletText = line.replace(/^[•\-]\s*/, '').trim();
+                        if (bulletText) {
+                            const wrappedLines = doc.splitTextToSize(`• ${bulletText}`, maxWidth - 5);
+                            for (let wrappedLine of wrappedLines) {
+                                if (yPosition > 270) {
+                                    doc.addPage();
+                                    yPosition = 20;
+                                }
+                                doc.text(wrappedLine, 25, yPosition);
+                                yPosition += 6;
+                            }
+                        }
+                    }
+                    // Handle bold text (lines starting with **)
+                    else if (line.trim().startsWith('**')) {
+                        doc.setFont('helvetica', 'bold');
+                        const boldText = line.replace(/\*\*/g, '').trim();
+                        if (boldText) {
+                            const wrappedLines = doc.splitTextToSize(boldText, maxWidth);
+                            for (let wrappedLine of wrappedLines) {
+                                if (yPosition > 270) {
+                                    doc.addPage();
+                                    yPosition = 20;
+                                }
+                                doc.text(wrappedLine, 25, yPosition);
+                                yPosition += 6;
+                            }
+                        }
+                        doc.setFont('helvetica', 'normal');
+                    }
+                    // Handle empty lines
+                    else if (line.trim() === '') {
+                        yPosition += 4;
+                    }
+                    // Handle regular text
+                    else if (line.trim()) {
+                        const wrappedLines = doc.splitTextToSize(line.trim(), maxWidth);
+                        for (let wrappedLine of wrappedLines) {
+                            if (yPosition > 270) {
+                                doc.addPage();
+                                yPosition = 20;
+                            }
+                            doc.text(wrappedLine, 25, yPosition);
+                            yPosition += 6;
+                        }
+                    }
+                }
+
+                // 12. Add footer on last page
+                const pageCount = doc.internal.getNumberOfPages();
+                doc.setPage(pageCount);
+                doc.setFontSize(8);
+                doc.setTextColor(150, 150, 150);
+                doc.text("Ce rapport a été généré automatiquement", 105, 285, { align: "center" });
+
+                // 13. Download the PDF
+                doc.save(`workflow_result_${executionId}.pdf`);
+
+                addLog(`✅ PDF generated and downloaded successfully`, 'response');
+
+            } catch (error) {
+                addLog(`❌ Error generating PDF: ${error.message}`, 'error');
+                console.error('PDF generation error:', error);
+            }
         }
 
         /**
