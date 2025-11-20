@@ -674,6 +674,24 @@ ENHANCEMENT GUIDELINES:
      - DATES: 15 janvier 2025
      - LIEUX: Paris
 
+   **⚠️ CRITICAL EXTRACTION RULE:**
+   When extracting entities (names, dates, places), ONLY extract what is EXPLICITLY MENTIONED in the text.
+   - ❌ DO NOT infer or deduce additional information
+   - ❌ DO NOT add context or related entities not in the text
+   - ❌ DO NOT extract parent/child locations (e.g., if text says "Paris", do NOT add "France" or "Île-de-France")
+   - ✅ ONLY extract the exact entities as they appear in the source text
+
+   Example:
+   Text: "Le 15 janvier 2025, Marie Dupont a rencontré Jean Martin à Paris pour discuter du projet LightOn. Ils ont convenu d'un rendez-vous à Lyon le 20 février 2025."
+
+   CORRECT extraction:
+   - NOMS: Marie Dupont, Jean Martin, LightOn
+   - DATES: 15 janvier 2025, 20 février 2025
+   - LIEUX: Paris, Lyon
+
+   WRONG extraction (DO NOT DO THIS):
+   - LIEUX: Paris, Lyon, France, Île-de-France, Auvergne-Rhône-Alpes ❌ (France and regions are NOT mentioned in text)
+
 3. For each step, clearly specify:
    - What action will be performed
    - Which Paradigm API tool will be used
