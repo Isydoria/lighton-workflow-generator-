@@ -601,6 +601,81 @@ async def paradigm_delete_file(file_id: int) -> bool:
         raise Exception(f"Paradigm delete file failed: {str(e)}")
 
 # ============================================================================
+# HELPER FUNCTIONS FOR COMMON PATTERNS
+# ============================================================================
+
+async def paradigm_search_with_vision_fallback(
+    query: str,
+    file_ids: Optional[List[int]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Search documents with automatic fallback to VisionDocumentSearch if normal search fails.
+
+    Implements a robust search strategy inspired by production workflows:
+    1. Try normal DocumentSearch first (fast, works for most cases)
+    2. If results are unclear or empty, fallback to VisionDocumentSearch
+
+    VisionDocumentSearch analyzes documents as images, which is more robust for:
+    - Scanned documents with poor OCR quality
+    - Complex tables and forms
+    - Documents with non-standard layouts
+
+    Args:
+        query: Search question in natural language
+        file_ids: Optional list of specific file IDs to search
+        **kwargs: Additional parameters (workspace_ids, model, etc.)
+
+    Returns:
+        dict: Search results with documents, answers, and metadata
+
+    Raises:
+        Exception: If both search methods fail
+
+    Note:
+        Based on patterns from yb-payment-request-2 implementation where
+        multiple fallback strategies proved essential for production robustness.
+    """
+    try:
+        logger.info(f"🔍 SMART SEARCH: Normal search → {query[:50]}...")
+
+        # Step 1: Try normal document search
+        result = await paradigm_document_search(
+            query,
+            file_ids=file_ids,
+            tool="DocumentSearch",
+            **kwargs
+        )
+
+        # Check result quality
+        answer = result.get("answer", "").strip()
+        has_documents = len(result.get("documents", [])) > 0
+
+        failure_indicators = ["not found", "no information", "cannot find", "unable to", "n/a"]
+        seems_unsuccessful = any(indicator in answer.lower() for indicator in failure_indicators)
+
+        if answer and has_documents and not seems_unsuccessful:
+            logger.info(f"✅ Normal search succeeded ({len(answer)} chars)")
+            return result
+
+        # Step 2: Fallback to vision search
+        logger.info("⚠️ Normal search unclear, trying VisionDocumentSearch fallback...")
+
+        vision_result = await paradigm_document_search(
+            query,
+            file_ids=file_ids,
+            tool="VisionDocumentSearch",
+            **kwargs
+        )
+
+        logger.info("✅ Vision search completed")
+        return vision_result
+
+    except Exception as e:
+        logger.error(f"❌ Search with vision fallback failed: {str(e)}")
+        raise Exception(f"Document search with vision fallback failed: {str(e)}")
+
+# ============================================================================
 # COMPATIBILITY LAYER (for existing code)
 # ============================================================================
 
@@ -618,28 +693,31 @@ class MockAnthropicClient:
 class MockParadigmClient:
     def __init__(self):
         pass
-    
+
     async def document_search(self, query: str, **kwargs) -> Dict[str, Any]:
         return await paradigm_document_search(query, **kwargs)
-    
+
+    async def search_with_vision_fallback(self, query: str, file_ids: Optional[List[int]] = None, **kwargs) -> Dict[str, Any]:
+        return await paradigm_search_with_vision_fallback(query, file_ids, **kwargs)
+
     async def document_analysis(self, query: str, document_ids: List[str], **kwargs) -> Dict[str, Any]:
         return await paradigm_document_analysis(query, document_ids, **kwargs)
-    
+
     async def get_analysis_result(self, chat_response_id: int) -> Dict[str, Any]:
         return await paradigm_get_analysis_result(chat_response_id)
-    
+
     async def analyze_documents_with_polling(self, query: str, document_ids: List[str], **kwargs) -> str:
         return await paradigm_analyze_documents_with_polling(query, document_ids, **kwargs)
-    
+
     async def upload_file(self, file_content: bytes, filename: str, **kwargs) -> Dict[str, Any]:
         return await paradigm_upload_file(file_content, filename, **kwargs)
-    
+
     async def get_file_info(self, file_id: int, **kwargs) -> Dict[str, Any]:
         return await paradigm_get_file_info(file_id, **kwargs)
-    
+
     async def ask_question_about_file(self, file_id: int, question: str) -> Dict[str, Any]:
         return await paradigm_ask_question_about_file(file_id, question)
-    
+
     async def delete_file(self, file_id: int) -> bool:
         return await paradigm_delete_file(file_id)
 
