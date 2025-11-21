@@ -182,7 +182,7 @@ class WorkflowExecutor:
             f'ANTHROPIC_API_KEY = "{settings.anthropic_api_key}"'
         )
         code = code.replace(
-            'LIGHTON_BASE_URL = "https://api.lighton.ai"',
+            'LIGHTON_BASE_URL = "https://paradigm.lighton.ai"',
             f'LIGHTON_BASE_URL = "{settings.lighton_base_url}"'
         )
         
