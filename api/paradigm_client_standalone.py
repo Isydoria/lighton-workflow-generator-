@@ -33,7 +33,7 @@ from paradigm_client_standalone import ParadigmClient
 # Initialize
 paradigm = ParadigmClient(
     api_key="client_api_key_here",
-    base_url="https://api.lighton.ai"
+    base_url="https://paradigm.lighton.ai"
 )
 
 # Use it
@@ -76,13 +76,13 @@ class ParadigmClient:
         >>> print(result["answer"])
     """
 
-    def __init__(self, api_key: str, base_url: str = "https://api.lighton.ai"):
+    def __init__(self, api_key: str, base_url: str = "https://paradigm.lighton.ai"):
         """
         Initialize the Paradigm client.
 
         Args:
             api_key: Your secret API key from Paradigm
-            base_url: The Paradigm API address (default: https://api.lighton.ai)
+            base_url: The Paradigm API address (default: https://paradigm.lighton.ai)
         """
         self.api_key = api_key
         self.base_url = base_url

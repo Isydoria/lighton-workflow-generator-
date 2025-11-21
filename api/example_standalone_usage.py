@@ -16,7 +16,7 @@ async def example_simple_search():
     # Initialize client (this will be done in workflow packages)
     client = ParadigmClient(
         api_key="your_api_key_here",  # Replaced with actual key in deployment
-        base_url="https://api.lighton.ai"
+        base_url="https://paradigm.lighton.ai"
     )
 
     # Search in specific files
