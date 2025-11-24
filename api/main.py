@@ -801,6 +801,9 @@ async def generate_workflow_package(workflow_id: str):
 
     The generated ZIP can be deployed independently by clients.
 
+    NOTE: This endpoint is disabled on Vercel (production) to stay within
+    the 12 Serverless Functions limit. Use it in local development only.
+
     Args:
         workflow_id: The ID of the workflow to package
 
@@ -810,6 +813,13 @@ async def generate_workflow_package(workflow_id: str):
     Raises:
         HTTPException: If workflow not found or generation fails
     """
+    # Disable on Vercel to stay within function limit
+    if settings.is_vercel:
+        raise HTTPException(
+            status_code=503,
+            detail="Package generation is only available in local development. Please run the Workflow Builder locally to generate packages."
+        )
+
     try:
         from .workflow.package_generator import WorkflowPackageGenerator, generate_ui_config_simple
 

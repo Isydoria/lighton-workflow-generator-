@@ -46,6 +46,9 @@ class Settings:
         self.debug: bool = os.getenv("DEBUG", "false").lower() == "true"
         self.host: str = os.getenv("HOST", "0.0.0.0")
         self.port: int = int(os.getenv("PORT", "8000"))
+
+        # Environment detection (Vercel sets VERCEL=1)
+        self.is_vercel: bool = os.getenv("VERCEL", "").lower() in ["1", "true"]
         
         # LightOn Paradigm API settings
         self.lighton_base_url: str = "https://paradigm.lighton.ai"
