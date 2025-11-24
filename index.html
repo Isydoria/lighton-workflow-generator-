@@ -1560,8 +1560,16 @@ if __name__ == "__main__":
                         // Add PDF download button
                         const pdfButtonDiv = document.createElement('div');
                         pdfButtonDiv.style.cssText = 'margin-top: 15px;';
-                        pdfButtonDiv.innerHTML = `<button onclick="downloadPDF('${currentWorkflowId}', '${data.execution_id}')" style="background: #28a745; padding: 12px 20px; font-size: 14px; display: inline-flex; align-items: center; gap: 8px;">📄 Download PDF Report</button>`;
+                        pdfButtonDiv.innerHTML = `<button onclick="downloadPDFFromData()" style="background: #28a745; padding: 12px 20px; font-size: 14px; display: inline-flex; align-items: center; gap: 8px;">📄 Download PDF Report</button>`;
                         resultDiv.appendChild(pdfButtonDiv);
+
+                        // Store execution data for PDF generation
+                        window.lastExecutionData = {
+                            execution_id: data.execution_id,
+                            status: data.status,
+                            execution_time: executionTime,
+                            result: data.result
+                        };
 
                         // Add tip about Paradigm tool
                         const tipDiv = document.createElement('div');
@@ -1619,24 +1627,54 @@ if __name__ == "__main__":
         }
 
         /**
+         * Generate and download PDF report using data already in memory (no API call needed).
+         * This is used after workflow execution when data is already available.
+         */
+        function downloadPDFFromData() {
+            if (!window.lastExecutionData) {
+                alert('No execution data available. Please run the workflow first.');
+                return;
+            }
+
+            // Call downloadPDF with execution object directly (no API fetch needed)
+            downloadPDF(null, window.lastExecutionData);
+        }
+
+        /**
          * Generate and download PDF report for a workflow execution using jsPDF (client-side).
          * This generates a simplified PDF containing ONLY the execution results (no technical workflow description).
          *
          * @param {string} workflowId - ID of the workflow
          * @param {string} executionId - ID of the execution
+         * @deprecated Use downloadPDFFromData() instead for better performance
          */
         async function downloadPDF(workflowId, executionId) {
-            addLog(`📄 Generating PDF report for execution ${executionId}...`, 'info');
+            // If executionId is actually an execution object, use it directly (from downloadPDFFromData)
+            let execution;
+            if (typeof executionId === 'object' && executionId.execution_id) {
+                execution = executionId;
+                addLog(`📄 Generating PDF report for execution ${execution.execution_id}...`, 'info');
+            } else {
+                // Legacy: fetch from API (not used anymore but kept for compatibility)
+                addLog(`📄 Generating PDF report for execution ${executionId}...`, 'info');
+
+                try {
+                    // 1. Fetch execution data from API
+                    const response = await fetch(`${API_BASE}/workflows/${workflowId}/executions/${executionId}`);
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch execution data: ${response.status}`);
+                    }
+
+                    execution = await response.json();
+                } catch (error) {
+                    addLog(`❌ Error fetching execution: ${error.message}`, 'error');
+                    alert('Failed to fetch execution data');
+                    return;
+                }
+            }
 
             try {
-                // 1. Fetch execution data from API
-                const response = await fetch(`${API_BASE}/workflows/${workflowId}/executions/${executionId}`);
-
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch execution data: ${response.status}`);
-                }
-
-                const execution = await response.json();
 
                 // 2. Create new PDF document (client-side)
                 const { jsPDF } = window.jspdf;
@@ -1789,7 +1827,7 @@ if __name__ == "__main__":
                 doc.text("Ce rapport a été généré automatiquement", 105, 285, { align: "center" });
 
                 // 13. Download the PDF
-                doc.save(`workflow_result_${executionId}.pdf`);
+                doc.save(`workflow_result_${execution.execution_id}.pdf`);
 
                 addLog(`✅ PDF generated and downloaded successfully`, 'response');
 
