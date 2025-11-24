@@ -232,8 +232,7 @@ class ParadigmClient:
 
         payload = {
             "query": query,
-            "document_ids": document_ids,
-            "private": private
+            "document_ids": document_ids
         }
 
         if model:
