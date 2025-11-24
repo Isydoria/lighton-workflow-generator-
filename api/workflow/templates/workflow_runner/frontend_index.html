@@ -294,11 +294,22 @@
     </div>
 
     <!-- jsPDF Library for client-side PDF generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <script>
         const API_BASE = 'http://localhost:8000';
         let currentExecutionData = null;
+        let jsPDFLoaded = false;
+
+        // Wait for jsPDF to load
+        window.addEventListener('load', function() {
+            if (window.jspdf) {
+                jsPDFLoaded = true;
+                console.log('✅ jsPDF loaded successfully');
+            } else {
+                console.error('❌ jsPDF failed to load');
+            }
+        });
 
         // Load configuration and generate UI
         async function loadWorkflow() {
@@ -476,6 +487,13 @@
         function downloadPDF() {
             if (!currentExecutionData) {
                 alert('Aucune donnée d\'exécution disponible');
+                return;
+            }
+
+            // Check if jsPDF is loaded
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                alert('❌ PDF library not loaded. Please wait and try again.');
+                console.error('jsPDF not available:', window.jspdf);
                 return;
             }
 
