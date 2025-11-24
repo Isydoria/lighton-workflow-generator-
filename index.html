@@ -357,6 +357,7 @@ Architecture:
         </div>
         
         <button onclick="executeWorkflowWithQuery()" id="testButton" disabled>Test Workflow</button>
+        <button onclick="downloadWorkflowPackage()" id="packageButton" disabled style="background: #28a745; margin-left: 10px;">📦 Download Workflow Package</button>
         <div id="testResult" style="margin-top: 15px;"></div>
     </div>
 
@@ -1373,9 +1374,10 @@ if __name__ == "__main__":
                 if (response.ok) {
                     currentWorkflowId = data.id;
                     document.getElementById('testButton').disabled = false;
-                    
+                    document.getElementById('packageButton').disabled = false;
+
                     const resultMessage = `✅ Workflow created successfully!\n\nID: ${data.id}\nName: ${data.name || 'Unnamed'}\nStatus: ${data.status}\n\nGenerated Code:\n${data.generated_code || 'No code generated'}`;
-                    
+
                     showResult(resultDiv, resultMessage, 'success');
                 } else {
                     showResult(resultDiv, `❌ Error: ${data.detail || 'Failed to create workflow'}`, 'error');
@@ -1887,6 +1889,75 @@ if __name__ == "__main__":
             
             document.getElementById('testButton').textContent = 'Test Workflow';
         };
+
+        /**
+         * Download standalone workflow package as ZIP
+         *
+         * This function calls the API endpoint that generates a complete,
+         * deployable workflow package containing:
+         * - Frontend with dynamic UI and PDF generation
+         * - Backend API server
+         * - Workflow execution code
+         * - Docker configuration
+         * - Bilingual documentation (FR/EN)
+         */
+        async function downloadWorkflowPackage() {
+            if (!currentWorkflowId) {
+                alert('Please create a workflow first');
+                addLog('❌ No workflow to package', 'error');
+                return;
+            }
+
+            addLog('📦 Generating workflow package...', 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/workflow/generate-package/${currentWorkflowId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to generate package');
+                }
+
+                // Get the ZIP file as a blob
+                const blob = await response.blob();
+
+                // Extract filename from Content-Disposition header or use default
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = 'workflow-package.zip';
+                if (contentDisposition) {
+                    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                    if (filenameMatch && filenameMatch[1]) {
+                        filename = filenameMatch[1].replace(/['"]/g, '');
+                    }
+                }
+
+                // Create a download link and click it
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+
+                // Cleanup
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                addLog(`✅ Package downloaded: ${filename}`, 'success');
+                alert(`✅ Workflow package downloaded successfully!\n\nFile: ${filename}\n\nYou can now:\n1. Extract the ZIP file\n2. Configure your Paradigm API key in .env\n3. Run: docker-compose up -d\n4. Access the workflow at http://localhost:8000`);
+
+            } catch (error) {
+                console.error('Package download error:', error);
+                addLog(`❌ Failed to download package: ${error.message}`, 'error');
+                alert(`Failed to download package: ${error.message}`);
+            }
+        }
     </script>
 </body>
 </html>

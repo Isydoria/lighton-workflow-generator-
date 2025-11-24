@@ -786,6 +786,86 @@ async def create_workflow_with_files(request: WorkflowWithFilesRequest):
         )
 
 
+@api_router.post("/workflow/generate-package/{workflow_id}", tags=["Workflow Runner"])
+async def generate_workflow_package(workflow_id: str):
+    """
+    Generate a standalone workflow runner package as a ZIP file.
+
+    This endpoint creates a complete, deployable application package containing:
+    - Frontend with dynamic UI and PDF generation
+    - Backend API server
+    - Workflow execution code
+    - Paradigm API client
+    - Docker configuration
+    - Bilingual documentation (FR/EN)
+
+    The generated ZIP can be deployed independently by clients.
+
+    Args:
+        workflow_id: The ID of the workflow to package
+
+    Returns:
+        StreamingResponse: ZIP file download
+
+    Raises:
+        HTTPException: If workflow not found or generation fails
+    """
+    try:
+        from .workflow.package_generator import WorkflowPackageGenerator, generate_ui_config_simple
+
+        logger.info(f"Generating package for workflow: {workflow_id}")
+
+        # Get the workflow from executor
+        workflow = workflow_executor.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow not found: {workflow_id}"
+            )
+
+        # For now, use simple UI config
+        # TODO: Implement Claude-based UI analysis
+        ui_config = generate_ui_config_simple(
+            workflow_name=workflow.name or "Unnamed Workflow",
+            workflow_description=workflow.description or "Generated workflow",
+            file_count=2  # Default to 2 files for prototype
+        )
+
+        # Generate the package
+        package_generator = WorkflowPackageGenerator(
+            workflow_name=workflow.name or "Unnamed Workflow",
+            workflow_description=workflow.description or "Generated workflow",
+            workflow_code=workflow.generated_code,
+            ui_config=ui_config
+        )
+
+        zip_buffer = package_generator.generate_zip()
+
+        # Create filename
+        workflow_name_slug = (workflow.name or "workflow").lower().replace(' ', '-')
+        filename = f"workflow-{workflow_name_slug}-{workflow_id[:8]}.zip"
+
+        logger.info(f"Package generated successfully: {filename}")
+
+        # Return as downloadable ZIP
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate package: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate package: {str(e)}"
+        )
+
+
 # Include the API router in the main app
 app.include_router(api_router, prefix="/api")
 
