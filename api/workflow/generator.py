@@ -106,11 +106,12 @@ import asyncio
 import aiohttp
 import json
 import logging
+import os
 from typing import Optional, List, Dict, Any
 
-# Configuration - replace with your actual values
-LIGHTON_API_KEY = "your_api_key_here"
-LIGHTON_BASE_URL = "https://paradigm.lighton.ai"
+# Configuration - reads from environment variables
+LIGHTON_API_KEY = os.getenv("PARADIGM_API_KEY", "your_api_key_here")
+LIGHTON_BASE_URL = os.getenv("PARADIGM_BASE_URL", "https://paradigm.lighton.ai")
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +402,7 @@ class ParadigmClient:
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(endpoint, data=data, headers=headers) as response:
-                    if response.status == 200:
+                    if response.status in [200, 201]:
                         result = await response.json()
                         file_id = result.get("id") or result.get("file_id")
                         logger.info(f"✅ File uploaded: ID={file_id}")
@@ -479,9 +480,17 @@ For workflow steps that extract or process information, use structured formats (
 🚨🚨🚨 MANDATORY PATTERN FOR DOCUMENT WORKFLOWS 🚨🚨🚨
 EVERY workflow that needs documents MUST use this exact if/else pattern:
 
-if 'attached_file_ids' in globals() and attached_file_ids:
+# Check for uploaded files in both globals() and builtins (supports both Workflow Builder and standalone runner)
+import builtins
+attached_files = None
+if 'attached_file_ids' in globals() and globals()['attached_file_ids']:
+    attached_files = globals()['attached_file_ids']
+elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
+    attached_files = builtins.attached_file_ids
+
+if attached_files:
     # User uploaded files - use them directly (NO document_search!)
-    document_ids = [str(file_id) for file_id in attached_file_ids]
+    document_ids = [str(file_id) for file_id in attached_files]
     analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 else:
     # No uploaded files - search workspace
@@ -711,10 +720,17 @@ document_ids = [str(doc["id"]) for doc in documents]
 analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 
 ✅ CORRECT PATTERN - ALWAYS USE THIS:
-# Check for uploaded files first, then fallback to workspace search
-if 'attached_file_ids' in globals() and attached_file_ids:
+# Check for uploaded files in both globals() and builtins (supports both Workflow Builder and standalone runner)
+import builtins
+attached_files = None
+if 'attached_file_ids' in globals() and globals()['attached_file_ids']:
+    attached_files = globals()['attached_file_ids']
+elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
+    attached_files = builtins.attached_file_ids
+
+if attached_files:
     # User uploaded files - use them directly (NO document_search!)
-    document_ids = [str(file_id) for file_id in attached_file_ids]
+    document_ids = [str(file_id) for file_id in attached_files]
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Your analysis query here",
         document_ids
@@ -748,7 +764,8 @@ answer = search_result.get("answer", "No answer provided")
 # Don't try to extract raw document content - use the answer field
 
 INCORRECT (DON'T DO THIS):
-file_ids=attached_file_ids if 'attached_file_ids' in globals() else None  # API doesn't accept None
+file_ids=attached_file_ids if 'attached_file_ids' in globals() else None  # Wrong: should use builtins
+if 'attached_file_ids' in globals():  # Wrong: should use hasattr(builtins, 'attached_file_ids')
 document_ids = [doc["id"] for doc in search_results.get("documents", [])]  # Should convert to strings
 import nltk  # External library not available
 answer = search_result["documents"][0].get("content", "")  # Raw content extraction

@@ -480,7 +480,7 @@ class ParadigmClient:
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(endpoint, data=data, headers=headers) as response:
-                    if response.status == 200:
+                    if response.status in [200, 201]:
                         result = await response.json()
                         file_id = result.get("id") or result.get("file_id")
                         logger.info(f"✅ File uploaded: ID={file_id}")
