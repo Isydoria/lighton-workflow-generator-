@@ -822,7 +822,7 @@ async def generate_workflow_package(workflow_id: str):
 
     try:
         from .workflow.package_generator import WorkflowPackageGenerator, generate_ui_config_simple
-        from .workflow.workflow_analyzer import analyze_workflow_for_ui
+        from .workflow.workflow_analyzer import analyze_workflow_for_ui, generate_simple_description
 
         logger.info(f"Generating package for workflow: {workflow_id}")
 
@@ -850,10 +850,22 @@ async def generate_workflow_package(workflow_id: str):
                 detail=f"Failed to analyze workflow code to generate UI configuration. Error: {str(e)}. Please try again or check the workflow code."
             )
 
+        # Generate a simple, user-friendly description (1-3 lines)
+        logger.info("Generating simple description...")
+        try:
+            simple_description = await generate_simple_description(
+                workflow_description=workflow.description or "",
+                workflow_name=workflow.name or "Unnamed Workflow"
+            )
+            logger.info(f"Simple description generated: {simple_description}")
+        except Exception as e:
+            logger.warning(f"Failed to generate simple description: {e}. Using original.")
+            simple_description = workflow.description or "Generated workflow"
+
         # Generate the package
         package_generator = WorkflowPackageGenerator(
             workflow_name=workflow.name or "Unnamed Workflow",
-            workflow_description=workflow.description or "Generated workflow",
+            workflow_description=simple_description,
             workflow_code=workflow.generated_code,
             ui_config=ui_config
         )
