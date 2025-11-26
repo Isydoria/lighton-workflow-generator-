@@ -1018,36 +1018,100 @@ ENHANCEMENT GUIDELINES:
    - ✅ Remove internal AI notes/comments (e.g., "Ne pas mentionner...", "Voici l'analyse...")
    - ✅ Create CLEAR sections with simple bullet points or numbered lists
    - ✅ Keep ONLY user-relevant information (no metadata, no processing notes)
-   - ✅ Use simple, readable format (avoid heavy markdown, avoid "ENTITÉ:", "CATÉGORIE:" labels)
+   - ✅ Use PROFESSIONAL MARKDOWN formatting with visual separators and hierarchy
    - ✅ Return final result as clean, structured text ready for end-user display
 
-   **GOOD compilation format example:**
+   **📄 PROFESSIONAL MARKDOWN OUTPUT FORMAT (MANDATORY):**
+
+   The final result returned to the user MUST be formatted as beautiful, professional Markdown:
+
+   1. **Use visual separators** between major sections:
+      - Main title separator: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      - Section separators: ---
+
+   2. **Use Markdown icons/emojis** for visual clarity:
+      - 📋 for main report title
+      - 📊 for analysis sections
+      - ✓ or • for list items
+      - 📄 for documents
+      - ⚠️ for warnings/important notes
+
+   3. **Clear hierarchy with Markdown headers**:
+      - # for main title
+      - ## for major sections
+      - ### for subsections
+      - #### for details
+
+   4. **Use bold (**text**) for emphasis** on key information
+
+   5. **Group related information** under clear section headers
+
+   **✅ EXCELLENT Markdown format example:**
+   ```
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   📋 RAPPORT D'ANALYSE COMPARATIVE - 4 DOCUMENTS
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+   ## Synthèse Comparative des Documents Analysés
+
+   ### 1. Points Clés du DC4
+
+   **Entités impliquées :**
+   - **Acheteur Public :** Union des Groupements d'Achats Publics (UGAP)
+   - **Titulaire :** SAS INOP'S (1 Parvis de la Défense, 92044 PARIS LA DEFENSE CEDEX)
+   - **Sous-traitant :** KEYRUS (155, rue Anatole France, 92593 LEVALLOIS-PERRET)
+
+   **Nature du contrat :**
+   - **Service :** Intelligence de la donnée - Lot 6
+   - **Montant :** 1 000 000 € HT / 1 200 000 € TTC
+   - **Durée :** Identique à celle du CCP/CCAP
+
+   ---
+
+   ### 2. Points Clés du RIB
+
+   **Coordonnées bancaires :**
+   - **IBAN :** FR76 3006 6109 4700 0202 2340
+   - **Titulaire :** KEYRUS
+   - **Banque :** CRÉDIT INDUSTRIEL ET COMMERCIAL
+   - **Adresse :** 155 rue Anatole France, 92300 Levallois-Perret
+
+   ---
+
+   ### 3. Analyse Comparative et Cohérence
+
+   **Cohérence des informations :**
+   ✓ Les noms d'entreprise sont cohérents dans tous les documents
+   ✓ Les coordonnées bancaires du RIB correspondent au DC4
+   ✓ Les montants financiers sont alignés
+   ✓ Les signatures et dates sont cohérentes
+
+   **Points d'attention :**
+   ⚠️ Certification spécifique non mentionnée dans le DC4
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   📊 DÉTAILS DES ANALYSES INDIVIDUELLES
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+   [Detailed sections follow...]
+   ```
+
+   **❌ BAD format (avoid - too basic):**
    ```
    NOMS EXTRAITS:
    - Marie Dupont
    - Jean Martin
-   - LightOn (organisation)
 
    DATES EXTRAITES:
    - 15 janvier 2025
-   - 20 février 2025
-
-   LIEUX EXTRAITS:
-   - Paris
-   - Lyon
    ```
 
-   **BAD compilation format (avoid):**
-   ```
-   SECTION 1: NOMS
-   Voici l'analyse... [internal note]
-   - ENTITÉ: Marie Dupont
-     CATÉGORIE: Personne physique
-     CONTEXTE: ... [too verbose]
-   - ENTITÉ: Paris [DUPLICATE - also appears in LIEUX]
-   Ne pas mentionner... [internal AI note]
-   MÉTADONNÉES DU RAPPORT... [unnecessary metadata]
-   ```
+   **Key principles:**
+   - Make it VISUALLY APPEALING with separators and icons
+   - Use CLEAR HIERARCHY with ## and ### headers
+   - Add BOLD (**) for important information
+   - Group related data under meaningful sections
+   - The output should look PROFESSIONAL, not like raw bullet points
 
    **DETECTION EXAMPLES** (recognize automatically):
    User: "Extraire le nom, l'adresse et le téléphone"

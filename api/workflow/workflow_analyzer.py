@@ -134,3 +134,74 @@ Return ONLY valid JSON, no markdown code blocks."""
         # Raise error instead of returning fallback
         # The endpoint in main.py will catch this and return HTTP 500
         raise Exception(f"Failed to analyze workflow with Claude: {str(e)}")
+
+
+async def generate_simple_description(workflow_description: str, workflow_name: str = "") -> str:
+    """
+    Generate a simple, user-friendly description (1-3 lines) from a technical workflow description.
+
+    Args:
+        workflow_description: The technical description (may include steps, details, etc.)
+        workflow_name: Optional workflow name for context
+
+    Returns:
+        A short, simple description in French (1-3 lines maximum)
+    """
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    prompt = f"""Tu es un assistant qui crée des descriptions courtes et simples pour des workflows.
+
+Workflow: {workflow_name if workflow_name else "Sans nom"}
+
+Description technique:
+{workflow_description}
+
+Génère UNE description simple et claire en français de ce workflow en maximum 1 à 3 lignes.
+La description doit expliquer ce que fait le workflow de manière compréhensible pour un utilisateur non-technique.
+
+Exemples de bonnes descriptions:
+- "Ce workflow compare plusieurs documents pour en extraire les différences de tarif"
+- "Extrait les informations de contact (noms, adresses, emails) des documents uploadés"
+- "Analyse des factures pour identifier les montants et dates de paiement"
+- "Compare les conditions contractuelles entre deux contrats"
+
+NE PAS inclure:
+- Les steps techniques (STEP 1a, STEP 1b, etc.)
+- Les détails d'implémentation
+- Les références à paradigm_client ou APIs
+- Les instructions techniques
+
+Réponds UNIQUEMENT avec la description courte, sans introduction ni explication."""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=200,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        description = response.content[0].text.strip()
+
+        # Remove quotes if present
+        if description.startswith('"') and description.endswith('"'):
+            description = description[1:-1]
+        if description.startswith("'") and description.endswith("'"):
+            description = description[1:-1]
+
+        # Limit to 300 characters max
+        if len(description) > 300:
+            description = description[:297] + "..."
+
+        return description
+
+    except Exception as e:
+        # Fallback: return first line of original description if generation fails
+        first_line = workflow_description.split('\n')[0]
+        if len(first_line) > 300:
+            return first_line[:297] + "..."
+        return first_line
