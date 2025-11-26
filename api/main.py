@@ -822,6 +822,7 @@ async def generate_workflow_package(workflow_id: str):
 
     try:
         from .workflow.package_generator import WorkflowPackageGenerator, generate_ui_config_simple
+        from .workflow.workflow_analyzer import analyze_workflow_for_ui
 
         logger.info(f"Generating package for workflow: {workflow_id}")
 
@@ -833,13 +834,21 @@ async def generate_workflow_package(workflow_id: str):
                 detail=f"Workflow not found: {workflow_id}"
             )
 
-        # For now, use simple UI config
-        # TODO: Implement Claude-based UI analysis
-        ui_config = generate_ui_config_simple(
-            workflow_name=workflow.name or "Unnamed Workflow",
-            workflow_description=workflow.description or "Generated workflow",
-            file_count=2  # Default to 2 files for prototype
-        )
+        # Use Claude to analyze workflow code and generate UI config automatically
+        logger.info("Analyzing workflow code with Claude to generate UI configuration...")
+        try:
+            ui_config = await analyze_workflow_for_ui(
+                workflow_code=workflow.generated_code,
+                workflow_name=workflow.name or "Unnamed Workflow",
+                workflow_description=workflow.description or "Generated workflow"
+            )
+            logger.info(f"UI config generated: {ui_config}")
+        except Exception as e:
+            logger.error(f"Failed to analyze workflow with Claude: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to analyze workflow code to generate UI configuration. Error: {str(e)}. Please try again or check the workflow code."
+            )
 
         # Generate the package
         package_generator = WorkflowPackageGenerator(
