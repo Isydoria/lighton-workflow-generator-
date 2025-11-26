@@ -44,8 +44,8 @@ analysis = await paradigm.analyze_documents_with_polling(
 )
 ```
 
-Version: 1.0.0
-Date: 2025-11-21
+Version: 1.1.0 (Session Reuse Optimization)
+Date: 2025-11-26
 Author: LightOn Workflow Builder Team
 """
 
@@ -60,20 +60,26 @@ logger = logging.getLogger(__name__)
 
 class ParadigmClient:
     """
-    Complete standalone client for LightOn Paradigm API.
+    Complete standalone client for LightOn Paradigm API with session reuse optimization.
 
     This client can be copied as-is into any Python project and provides
     full access to Paradigm's document search, analysis, and chat capabilities.
 
+    Performance: Uses session reuse for 5.55x speed improvement over creating
+    new connections for each request (1.86s vs 10.33s for 20 requests).
+
     Attributes:
         api_key (str): Your Paradigm API authentication key
-        base_url (str): The Paradigm API base URL (usually https://api.lighton.ai)
+        base_url (str): The Paradigm API base URL (usually https://paradigm.lighton.ai)
         headers (dict): HTTP headers for authentication
 
     Example:
-        >>> client = ParadigmClient(api_key="sk-...", base_url="https://api.lighton.ai")
-        >>> result = await client.document_search("Find the invoice total", file_ids=[123])
-        >>> print(result["answer"])
+        >>> client = ParadigmClient(api_key="sk-...", base_url="https://paradigm.lighton.ai")
+        >>> try:
+        >>>     result = await client.document_search("Find the invoice total", file_ids=[123])
+        >>>     print(result["answer"])
+        >>> finally:
+        >>>     await client.close()  # Always close to free resources
     """
 
     def __init__(self, api_key: str, base_url: str = "https://paradigm.lighton.ai"):
@@ -90,7 +96,46 @@ class ParadigmClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
+        self._session: Optional[aiohttp.ClientSession] = None
         logger.info(f"✅ ParadigmClient initialized: {base_url}")
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """
+        Get or create the shared aiohttp session for performance.
+
+        Reusing the same session across multiple requests provides 5.55x performance
+        improvement by avoiding connection setup overhead on every call.
+
+        Official benchmark (Paradigm docs):
+        - With session reuse: 1.86s for 20 requests
+        - Without session reuse: 10.33s for 20 requests
+
+        Returns:
+            aiohttp.ClientSession: The shared HTTP session
+        """
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+            logger.debug("🔌 Created new aiohttp session")
+        return self._session
+
+    async def close(self):
+        """
+        Close the shared aiohttp session and free resources.
+
+        IMPORTANT: Always call this method when done with the client,
+        typically in a finally block to ensure cleanup even if errors occur.
+
+        Example:
+            >>> client = ParadigmClient(api_key="...")
+            >>> try:
+            >>>     await client.document_search("query")
+            >>> finally:
+            >>>     await client.close()
+        """
+        if self._session and not self._session.closed:
+            await self._session.close()
+            logger.debug("🔌 Closed aiohttp session")
+            self._session = None
 
     async def document_search(
         self,
@@ -147,20 +192,20 @@ class ParadigmClient:
         try:
             logger.info(f"🔍 Document Search: {query[:50]}... (tool={tool})")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    endpoint,
-                    json=payload,
-                    headers=self.headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        logger.info(f"✅ Search completed: {len(result.get('documents', []))} documents")
-                        return result
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"❌ Search failed: {response.status} - {error_text}")
-                        raise Exception(f"Document search failed: {response.status} - {error_text}")
+            session = await self._get_session()
+            async with session.post(
+                endpoint,
+                json=payload,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    logger.info(f"✅ Search completed: {len(result.get('documents', []))} documents")
+                    return result
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Search failed: {response.status} - {error_text}")
+                    raise Exception(f"Document search failed: {response.status} - {error_text}")
 
         except Exception as e:
             logger.error(f"❌ Search error: {str(e)}")
@@ -258,21 +303,21 @@ class ParadigmClient:
         try:
             logger.info(f"📊 Starting analysis: {query[:50]}...")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    endpoint,
-                    json=payload,
-                    headers=self.headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        chat_response_id = result.get("chat_response_id")
-                        logger.info(f"✅ Analysis started: {chat_response_id}")
-                        return chat_response_id
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"❌ Analysis start failed: {response.status}")
-                        raise Exception(f"Failed to start analysis: {response.status} - {error_text}")
+            session = await self._get_session()
+            async with session.post(
+                endpoint,
+                json=payload,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    chat_response_id = result.get("chat_response_id")
+                    logger.info(f"✅ Analysis started: {chat_response_id}")
+                    return chat_response_id
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Analysis start failed: {response.status}")
+                    raise Exception(f"Failed to start analysis: {response.status} - {error_text}")
 
         except Exception as e:
             logger.error(f"❌ Analysis start error: {str(e)}")
@@ -291,15 +336,15 @@ class ParadigmClient:
         endpoint = f"{self.base_url}/api/v2/chat/document-analysis/{chat_response_id}"
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(endpoint, headers=self.headers) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    elif response.status == 404:
-                        return {"status": "processing"}
-                    else:
-                        error_text = await response.text()
-                        raise Exception(f"Failed to get analysis result: {response.status}")
+            session = await self._get_session()
+            async with session.get(endpoint, headers=self.headers) as response:
+                if response.status == 200:
+                    return await response.json()
+                elif response.status == 404:
+                    return {"status": "processing"}
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"Failed to get analysis result: {response.status}")
 
         except Exception as e:
             logger.error(f"❌ Get result error: {str(e)}")
@@ -430,21 +475,21 @@ class ParadigmClient:
         try:
             logger.info(f"💬 Chat completion: {prompt[:50]}...")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    endpoint,
-                    json=payload,
-                    headers=self.headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        answer = result["choices"][0]["message"]["content"]
-                        logger.info(f"✅ Chat completed ({len(answer)} chars)")
-                        return answer
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"❌ Chat failed: {response.status}")
-                        raise Exception(f"Chat completion failed: {response.status}")
+            session = await self._get_session()
+            async with session.post(
+                endpoint,
+                json=payload,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    answer = result["choices"][0]["message"]["content"]
+                    logger.info(f"✅ Chat completed ({len(answer)} chars)")
+                    return answer
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Chat failed: {response.status}")
+                    raise Exception(f"Chat completion failed: {response.status}")
 
         except Exception as e:
             logger.error(f"❌ Chat error: {str(e)}")
@@ -478,17 +523,17 @@ class ParadigmClient:
         try:
             logger.info(f"📁 Uploading: {filename} ({len(file_content)} bytes)")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(endpoint, data=data, headers=headers) as response:
-                    if response.status in [200, 201]:
-                        result = await response.json()
-                        file_id = result.get("id") or result.get("file_id")
-                        logger.info(f"✅ File uploaded: ID={file_id}")
-                        return result
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"❌ Upload failed: {response.status}")
-                        raise Exception(f"File upload failed: {response.status}")
+            session = await self._get_session()
+            async with session.post(endpoint, data=data, headers=headers) as response:
+                if response.status in [200, 201]:
+                    result = await response.json()
+                    file_id = result.get("id") or result.get("file_id")
+                    logger.info(f"✅ File uploaded: ID={file_id}")
+                    return result
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Upload failed: {response.status}")
+                    raise Exception(f"File upload failed: {response.status}")
 
         except Exception as e:
             logger.error(f"❌ Upload error: {str(e)}")
@@ -527,21 +572,21 @@ class ParadigmClient:
         try:
             logger.info(f"🖼️ Image analysis: {query[:50]}...")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    endpoint,
-                    json=payload,
-                    headers=self.headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        answer = result.get("answer", "No analysis result provided")
-                        logger.info(f"✅ Image analysis completed")
-                        return answer
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"❌ Image analysis failed: {response.status}")
-                        raise Exception(f"Image analysis failed: {response.status}")
+            session = await self._get_session()
+            async with session.post(
+                endpoint,
+                json=payload,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    answer = result.get("answer", "No analysis result provided")
+                    logger.info(f"✅ Image analysis completed")
+                    return answer
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Image analysis failed: {response.status}")
+                    raise Exception(f"Image analysis failed: {response.status}")
 
         except Exception as e:
             logger.error(f"❌ Image analysis error: {str(e)}")
@@ -549,6 +594,6 @@ class ParadigmClient:
 
 
 # Module metadata
-__version__ = "1.0.0"
+__version__ = "1.1.0"  # Session reuse optimization for 5.55x performance improvement
 __author__ = "LightOn Workflow Builder Team"
 __all__ = ["ParadigmClient"]
