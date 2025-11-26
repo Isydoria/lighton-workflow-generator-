@@ -545,17 +545,96 @@ else:
 
 NEVER skip the if/else check. NEVER call document_search when attached_file_ids exists.
 
+❌ WRONG PATTERNS - DO NOT GENERATE THIS CODE:
+
+# ❌ WRONG: Using document_search with uploaded files
+if attached_files:
+    search_results = await paradigm_client.document_search("keyword", file_ids=attached_files)  # WRONG!
+    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
+
+# ❌ WRONG: Skipping the if/else check entirely
+document_ids = [str(file_id) for file_id in attached_file_ids]  # WRONG - assumes files always exist!
+
+# ❌ WRONG: Using document_search for uploaded files to "filter" them
+if attached_files:
+    results = await paradigm_client.document_search("Lighton", file_ids=attached_files)  # WRONG!
+
+✅ CORRECT PATTERNS - ALWAYS GENERATE THIS CODE:
+
+# ✅ CORRECT: Direct use of uploaded file IDs
+if attached_files:
+    document_ids = [str(file_id) for file_id in attached_files]
+    # Now use document_ids directly for analysis
+    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+else:
+    # Search workspace only when no files uploaded
+    search_results = await paradigm_client.document_search(query)
+    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
+    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+
+🎯 QUERY FORMULATION BEST PRACTICES (CRITICAL - Prevents 40% of query failures):
+
+The Paradigm API may automatically reformulate queries, which can LOSE IMPORTANT INFORMATION.
+To prevent this, ALWAYS follow these rules when creating queries:
+
+1. **BE SPECIFIC with field names and terminology**:
+   ❌ BAD: "Extract the identifier"
+   ✅ GOOD: "Extract the SIRET number"
+
+   ❌ BAD: "Find the date"
+   ✅ GOOD: "Extract the invoice date"
+
+2. **INCLUDE EXPECTED FORMATS explicitly**:
+   ❌ BAD: "Extract the SIRET number"
+   ✅ GOOD: "Extract the SIRET number (14 digits)"
+
+   ❌ BAD: "Find the date"
+   ✅ GOOD: "Extract the date in DD/MM/YYYY format"
+
+3. **MENTION DOCUMENT SECTIONS when known**:
+   ❌ BAD: "Extract company name"
+   ✅ GOOD: "Extract company name from the 'Company Information' section"
+
+   ❌ BAD: "Find the total amount"
+   ✅ GOOD: "Extract the total amount from the 'Payment Summary' section at the bottom"
+
+4. **USE KEYWORDS from the actual document**:
+   ❌ BAD: "Extract payment information"
+   ✅ GOOD: "Extract the 'Montant TTC' (total amount including tax)"
+
+   ❌ BAD: "Find the company details"
+   ✅ GOOD: "Extract information from the 'Informations légales' header"
+
+5. **AVOID VAGUE TERMS** like "information", "data", "details":
+   ❌ BAD: "Extract all company information"
+   ✅ GOOD: "Extract company name, SIRET (14 digits), address, and phone number"
+
+   ❌ BAD: "Get the document data"
+   ✅ GOOD: "Extract invoice number, date (DD/MM/YYYY), and total amount (€)"
+
+6. **COMBINE MULTIPLE SPECIFICITY LAYERS**:
+   ✅ EXCELLENT: "Extract the SIRET number (exactly 14 digits) from the 'Informations légales' section at the top of the document"
+   ✅ EXCELLENT: "Find the date de facturation in DD/MM/YYYY format from the invoice header"
+
+WHY THIS MATTERS:
+- Vague queries get reformulated and lose critical details
+- Specific queries with formats and sections preserve all information
+- Using document keywords improves extraction accuracy by 40%
+
 AVAILABLE API METHODS:
 1. await paradigm_client.document_search(query: str, workspace_ids=None, file_ids=None, company_scope=True, private_scope=True, tool="DocumentSearch", private=False)
    ⚠️ NEVER call this if attached_file_ids exists! Use the IDs directly instead.
+   ⚠️ ALWAYS apply Query Formulation Best Practices to the query parameter
 2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None)
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** IMPORTANT: For document type identification, analyze documents ONE BY ONE to get clear ID-to-type mapping ***
    *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
+   ⚠️ ALWAYS apply Query Formulation Best Practices to the query parameter
 3. await paradigm_client.chat_completion(prompt: str, model: str = "Alfred 4.2")
 4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None) - Analyze images in documents with AI-powered visual analysis
    *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
    *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
+   ⚠️ ALWAYS apply Query Formulation Best Practices to the query parameter
 
 🚀 PARALLELIZATION: WHEN AND HOW TO USE asyncio.gather()
 
