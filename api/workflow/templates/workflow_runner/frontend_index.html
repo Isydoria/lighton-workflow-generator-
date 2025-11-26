@@ -483,15 +483,38 @@
             }
         }
 
+        // Helper function to encode text for jsPDF (Latin-1 encoding)
+        function encodeForPDF(text) {
+            // jsPDF with Helvetica only supports ISO-8859-1 (Latin-1)
+            // This function converts common French characters
+            const charMap = {
+                'à': '\u00E0', 'â': '\u00E2', 'ä': '\u00E4',
+                'é': '\u00E9', 'è': '\u00E8', 'ê': '\u00EA', 'ë': '\u00EB',
+                'î': '\u00EE', 'ï': '\u00EF',
+                'ô': '\u00F4', 'ö': '\u00F6',
+                'ù': '\u00F9', 'û': '\u00FB', 'ü': '\u00FC',
+                'ç': '\u00E7',
+                'À': '\u00C0', 'Â': '\u00C2', 'Ä': '\u00C4',
+                'É': '\u00C9', 'È': '\u00C8', 'Ê': '\u00CA', 'Ë': '\u00CB',
+                'Î': '\u00CE', 'Ï': '\u00CF',
+                'Ô': '\u00D4', 'Ö': '\u00D6',
+                'Ù': '\u00D9', 'Û': '\u00DB', 'Ü': '\u00DC',
+                'Ç': '\u00C7',
+                '€': '\u20AC', '°': '\u00B0'
+            };
+
+            return text.split('').map(char => charMap[char] || char).join('');
+        }
+
         function downloadPDF() {
             if (!currentExecutionData) {
-                alert('Aucune donnée d\'exécution disponible');
+                alert(encodeForPDF('Aucune donnée d\'exécution disponible'));
                 return;
             }
 
             // Check if jsPDF is loaded
             if (!window.jspdf || !window.jspdf.jsPDF) {
-                alert('❌ PDF library not loaded. Please wait and try again.');
+                alert(encodeForPDF('❌ PDF library not loaded. Please wait and try again.'));
                 console.error('jsPDF not available:', window.jspdf);
                 return;
             }
@@ -503,13 +526,13 @@
                 // Title
                 doc.setFontSize(20);
                 doc.setFont('helvetica', 'bold');
-                doc.text("Résultat de l'analyse", 105, 20, { align: "center" });
+                doc.text(encodeForPDF("Résultat de l'analyse"), 105, 20, { align: "center" });
 
                 // Generation date
                 doc.setFontSize(10);
                 doc.setFont('helvetica', 'normal');
                 doc.setTextColor(100, 100, 100);
-                doc.text(`Généré le ${new Date().toLocaleString('fr-FR', {
+                doc.text(encodeForPDF(`Généré le ${new Date().toLocaleString('fr-FR', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit',
@@ -527,21 +550,21 @@
                 doc.setFontSize(11);
                 doc.setFont('helvetica', 'bold');
                 doc.setTextColor(0, 0, 0);
-                doc.text("Statut:", 20, yPosition);
+                doc.text(encodeForPDF("Statut:"), 20, yPosition);
 
                 doc.setFont('helvetica', 'normal');
                 const status = currentExecutionData.status || 'completed';
                 const statusColor = status === 'completed' ? [40, 167, 69] : [220, 53, 69];
                 doc.setTextColor(...statusColor);
-                doc.text(status.toUpperCase(), 45, yPosition);
+                doc.text(encodeForPDF(status.toUpperCase()), 45, yPosition);
 
                 // Execution time
                 yPosition += 8;
                 doc.setTextColor(0, 0, 0);
                 doc.setFont('helvetica', 'bold');
-                doc.text("Temps d'exécution:", 20, yPosition);
+                doc.text(encodeForPDF("Temps d'exécution:"), 20, yPosition);
                 doc.setFont('helvetica', 'normal');
-                doc.text(`${currentExecutionData.execution_time || 0} secondes`, 65, yPosition);
+                doc.text(encodeForPDF(`${currentExecutionData.execution_time || 0} secondes`), 65, yPosition);
 
                 // Separator
                 yPosition += 8;
@@ -553,14 +576,14 @@
                 doc.setFontSize(14);
                 doc.setFont('helvetica', 'bold');
                 doc.setTextColor(0, 0, 0);
-                doc.text("Résultats:", 20, yPosition);
+                doc.text(encodeForPDF("Résultats:"), 20, yPosition);
 
                 // Result content
                 yPosition += 10;
                 doc.setFontSize(10);
                 doc.setFont('helvetica', 'normal');
 
-                const result = currentExecutionData.result || "Aucun résultat disponible";
+                const result = encodeForPDF(currentExecutionData.result || "Aucun résultat disponible");
                 const lines = result.split('\n');
                 const maxWidth = 170;
 
