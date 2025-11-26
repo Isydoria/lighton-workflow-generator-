@@ -173,8 +173,13 @@ class WorkflowExecutor:
         Inject actual API keys into the generated code
         """
         # Replace placeholder API keys with actual values
+        # Support both old format and new format with os.getenv
         code = code.replace(
             'LIGHTON_API_KEY = "your_api_key_here"',
+            f'LIGHTON_API_KEY = "{settings.lighton_api_key}"'
+        )
+        code = code.replace(
+            'LIGHTON_API_KEY = os.getenv("PARADIGM_API_KEY", "your_api_key_here")',
             f'LIGHTON_API_KEY = "{settings.lighton_api_key}"'
         )
         code = code.replace(
@@ -182,10 +187,14 @@ class WorkflowExecutor:
             f'ANTHROPIC_API_KEY = "{settings.anthropic_api_key}"'
         )
         code = code.replace(
-            'LIGHTON_BASE_URL = "https://api.lighton.ai"',
+            'LIGHTON_BASE_URL = "https://paradigm.lighton.ai"',
             f'LIGHTON_BASE_URL = "{settings.lighton_base_url}"'
         )
-        
+        code = code.replace(
+            'LIGHTON_BASE_URL = os.getenv("PARADIGM_BASE_URL", "https://paradigm.lighton.ai")',
+            f'LIGHTON_BASE_URL = "{settings.lighton_base_url}"'
+        )
+
         return code
     
     async def _run_code_with_capture(self, compiled_code, execution_globals: Dict[str, Any], user_input: str) -> str:

@@ -786,6 +786,105 @@ async def create_workflow_with_files(request: WorkflowWithFilesRequest):
         )
 
 
+@api_router.post("/workflow/generate-package/{workflow_id}", tags=["Workflow Runner"])
+async def generate_workflow_package(workflow_id: str):
+    """
+    Generate a standalone workflow runner package as a ZIP file.
+
+    This endpoint creates a complete, deployable application package containing:
+    - Frontend with dynamic UI and PDF generation
+    - Backend API server
+    - Workflow execution code
+    - Paradigm API client
+    - Docker configuration
+    - Bilingual documentation (FR/EN)
+
+    The generated ZIP can be deployed independently by clients.
+
+    NOTE: This endpoint is disabled on Vercel (production) to stay within
+    the 12 Serverless Functions limit. Use it in local development only.
+
+    Args:
+        workflow_id: The ID of the workflow to package
+
+    Returns:
+        StreamingResponse: ZIP file download
+
+    Raises:
+        HTTPException: If workflow not found or generation fails
+    """
+    # Disable on Vercel to stay within function limit
+    if settings.is_vercel:
+        raise HTTPException(
+            status_code=503,
+            detail="Package generation is only available in local development. Please run the Workflow Builder locally to generate packages."
+        )
+
+    try:
+        from .workflow.package_generator import WorkflowPackageGenerator, generate_ui_config_simple
+        from .workflow.workflow_analyzer import analyze_workflow_for_ui
+
+        logger.info(f"Generating package for workflow: {workflow_id}")
+
+        # Get the workflow from executor
+        workflow = workflow_executor.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow not found: {workflow_id}"
+            )
+
+        # Use Claude to analyze workflow code and generate UI config automatically
+        logger.info("Analyzing workflow code with Claude to generate UI configuration...")
+        try:
+            ui_config = await analyze_workflow_for_ui(
+                workflow_code=workflow.generated_code,
+                workflow_name=workflow.name or "Unnamed Workflow",
+                workflow_description=workflow.description or "Generated workflow"
+            )
+            logger.info(f"UI config generated: {ui_config}")
+        except Exception as e:
+            logger.error(f"Failed to analyze workflow with Claude: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to analyze workflow code to generate UI configuration. Error: {str(e)}. Please try again or check the workflow code."
+            )
+
+        # Generate the package
+        package_generator = WorkflowPackageGenerator(
+            workflow_name=workflow.name or "Unnamed Workflow",
+            workflow_description=workflow.description or "Generated workflow",
+            workflow_code=workflow.generated_code,
+            ui_config=ui_config
+        )
+
+        zip_buffer = package_generator.generate_zip()
+
+        # Create filename
+        workflow_name_slug = (workflow.name or "workflow").lower().replace(' ', '-')
+        filename = f"workflow-{workflow_name_slug}-{workflow_id[:8]}.zip"
+
+        logger.info(f"Package generated successfully: {filename}")
+
+        # Return as downloadable ZIP
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate package: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate package: {str(e)}"
+        )
+
+
 # Include the API router in the main app
 app.include_router(api_router, prefix="/api")
 

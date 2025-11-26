@@ -1,0 +1,9 @@
+{
+  "workflow_name": "{{WORKFLOW_NAME}}",
+  "workflow_description": "{{WORKFLOW_DESCRIPTION}}",
+  "requires_text_input": {{REQUIRES_TEXT_INPUT}},
+  "text_input_label": "{{TEXT_INPUT_LABEL}}",
+  "text_input_placeholder": "{{TEXT_INPUT_PLACEHOLDER}}",
+  "requires_files": {{REQUIRES_FILES}},
+  "files": {{FILES_JSON}}
+}

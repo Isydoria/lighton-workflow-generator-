@@ -106,95 +106,325 @@ import asyncio
 import aiohttp
 import json
 import logging
+import os
 from typing import Optional, List, Dict, Any
 
-# Configuration - replace with your actual values
-LIGHTON_API_KEY = "your_api_key_here"
-LIGHTON_BASE_URL = "https://api.lighton.ai"
+# Configuration - reads from environment variables
+LIGHTON_API_KEY = os.getenv("PARADIGM_API_KEY", "your_api_key_here")
+LIGHTON_BASE_URL = os.getenv("PARADIGM_BASE_URL", "https://paradigm.lighton.ai")
 
 logger = logging.getLogger(__name__)
 
 class ParadigmClient:
-    def __init__(self, api_key: str, base_url: str):
-        self.base_url = base_url
+
+    def __init__(self, api_key: str, base_url: str = "https://paradigm.lighton.ai"):
         self.api_key = api_key
+        self.base_url = base_url
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
-    
-    async def document_search(self, query: str, **kwargs) -> Dict[str, Any]:
+        logger.info(f"✅ ParadigmClient initialized: {base_url}")
+
+    async def document_search(
+        self,
+        query: str,
+        file_ids: Optional[List[int]] = None,
+        workspace_ids: Optional[List[int]] = None,
+        chat_session_id: Optional[str] = None,
+        model: Optional[str] = None,
+        company_scope: bool = False,
+        private_scope: bool = True,
+        tool: str = "DocumentSearch",
+        private: bool = True
+    ) -> Dict[str, Any]:
         endpoint = f"{self.base_url}/api/v2/chat/document-search"
-        payload = {"query": query, **kwargs}
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, headers=self.headers) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    raise Exception(f"API error {response.status}: {await response.text()}")
-    
-    async def analyze_documents_with_polling(self, query: str, document_ids: List[int], **kwargs) -> str:
-        # Start analysis
+
+        payload = {
+            "query": query,
+            "company_scope": company_scope,
+            "private_scope": private_scope,
+            "tool": tool,
+            "private": private
+        }
+
+        if file_ids:
+            payload["file_ids"] = file_ids
+        if workspace_ids:
+            payload["workspace_ids"] = workspace_ids
+        if chat_session_id:
+            payload["chat_session_id"] = chat_session_id
+        if model:
+            payload["model"] = model
+
+        try:
+            logger.info(f"🔍 Document Search: {query[:50]}... (tool={tool})")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint,
+                    json=payload,
+                    headers=self.headers
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"✅ Search completed: {len(result.get('documents', []))} documents")
+                        return result
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Search failed: {response.status} - {error_text}")
+                        raise Exception(f"Document search failed: {response.status} - {error_text}")
+
+        except Exception as e:
+            logger.error(f"❌ Search error: {str(e)}")
+            raise
+
+    async def search_with_vision_fallback(
+        self,
+        query: str,
+        file_ids: Optional[List[int]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        try:
+            logger.info("🔍 Smart search: trying normal search first...")
+
+            # Try normal search
+            result = await self.document_search(
+                query,
+                file_ids=file_ids,
+                tool="DocumentSearch",
+                **kwargs
+            )
+
+            # Check result quality
+            answer = result.get("answer", "").strip()
+            has_documents = len(result.get("documents", [])) > 0
+            failure_indicators = ["not found", "no information", "cannot find", "unable to", "n/a"]
+            seems_unsuccessful = any(indicator in answer.lower() for indicator in failure_indicators)
+
+            if answer and has_documents and not seems_unsuccessful:
+                logger.info("✅ Normal search succeeded")
+                return result
+
+            # Fallback to vision
+            logger.info("⚠️ Normal search unclear, trying vision fallback...")
+            vision_result = await self.document_search(
+                query,
+                file_ids=file_ids,
+                tool="VisionDocumentSearch",
+                **kwargs
+            )
+
+            logger.info("✅ Vision search completed")
+            return vision_result
+
+        except Exception as e:
+            logger.error(f"❌ Smart search failed: {str(e)}")
+            raise
+
+    async def document_analysis_start(
+        self,
+        query: str,
+        document_ids: List[int],
+        model: Optional[str] = None,
+        private: bool = True
+    ) -> str:
         endpoint = f"{self.base_url}/api/v2/chat/document-analysis"
-        payload = {"query": query, "document_ids": document_ids, **kwargs}
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, headers=self.headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    chat_response_id = result.get("chat_response_id")
-                else:
-                    raise Exception(f"Analysis API error {response.status}: {await response.text()}")
-        
-        # Poll for results
-        max_wait = 300  # 5 minutes
-        poll_interval = 5
-        elapsed = 0
-        
-        while elapsed < max_wait:
-            endpoint = f"{self.base_url}/api/v2/chat/document-analysis/{chat_response_id}"
+
+        payload = {
+            "query": query,
+            "document_ids": document_ids
+        }
+
+        if model:
+            payload["model"] = model
+
+        try:
+            logger.info(f"📊 Starting analysis: {query[:50]}...")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint,
+                    json=payload,
+                    headers=self.headers
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        chat_response_id = result.get("chat_response_id")
+                        logger.info(f"✅ Analysis started: {chat_response_id}")
+                        return chat_response_id
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Analysis start failed: {response.status}")
+                        raise Exception(f"Failed to start analysis: {response.status} - {error_text}")
+
+        except Exception as e:
+            logger.error(f"❌ Analysis start error: {str(e)}")
+            raise
+
+    async def document_analysis_get_result(self, chat_response_id: str) -> Dict[str, Any]:
+        endpoint = f"{self.base_url}/api/v2/chat/document-analysis/{chat_response_id}"
+
+        try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(endpoint, headers=self.headers) as response:
                     if response.status == 200:
-                        result = await response.json()
-                        status = result.get("status", "")
-                        if status.lower() in ["completed", "complete", "finished", "success"]:
-                            analysis_result = result.get("result") or result.get("detailed_analysis") or "Analysis completed"
-                            return analysis_result
-                        elif status.lower() in ["failed", "error"]:
-                            raise Exception(f"Analysis failed: {status}")
+                        return await response.json()
                     elif response.status == 404:
-                        # Analysis not ready yet, continue polling
-                        pass
+                        return {"status": "processing"}
                     else:
-                        raise Exception(f"Polling API error {response.status}: {await response.text()}")
-                    
+                        error_text = await response.text()
+                        raise Exception(f"Failed to get analysis result: {response.status}")
+
+        except Exception as e:
+            logger.error(f"❌ Get result error: {str(e)}")
+            raise
+
+    async def analyze_documents_with_polling(
+        self,
+        query: str,
+        document_ids: List[int],
+        model: Optional[str] = None,
+        private: bool = True,
+        max_wait_time: int = 300,
+        poll_interval: int = 5
+    ) -> str:
+        try:
+            logger.info(f"📊 Analysis with polling: max={max_wait_time}s, interval={poll_interval}s")
+
+            # Start the analysis
+            chat_response_id = await self.document_analysis_start(
+                query, document_ids, model, private
+            )
+
+            # Poll for results
+            elapsed = 0
+            while elapsed < max_wait_time:
+                try:
+                    result = await self.document_analysis_get_result(chat_response_id)
+                    status = result.get("status", "").lower()
+
+                    logger.info(f"🔄 Polling: {status} (elapsed: {elapsed}s)")
+
+                    # Check if completed
+                    if status in ["completed", "complete", "finished", "success"]:
+                        analysis_result = result.get("result") or result.get("detailed_analysis")
+                        if analysis_result:
+                            logger.info(f"✅ Analysis done! ({len(analysis_result)} chars)")
+                            return analysis_result
+                        else:
+                            return "Analysis completed but no result was returned"
+
+                    # Check if failed
+                    elif status in ["failed", "error"]:
+                        logger.error(f"❌ Analysis failed: {status}")
+                        raise Exception(f"Analysis failed with status: {status}")
+
+                    # Still processing
                     await asyncio.sleep(poll_interval)
                     elapsed += poll_interval
-        
-        raise Exception("Analysis timed out")
-    
-    async def chat_completion(self, prompt: str, model: str = "alfred-4.2") -> str:
+
+                except Exception as e:
+                    if "not found" in str(e).lower() or "404" in str(e):
+                        # Still processing
+                        logger.info(f"⏳ Still running... ({elapsed}s)")
+                        await asyncio.sleep(poll_interval)
+                        elapsed += poll_interval
+                        continue
+                    else:
+                        raise
+
+            # Timeout
+            logger.error(f"⏰ Timeout after {max_wait_time}s")
+            raise Exception(f"Analysis timed out after {max_wait_time} seconds")
+
+        except Exception as e:
+            logger.error(f"❌ Analysis with polling failed: {str(e)}")
+            return f"Document analysis failed: {str(e)}"
+
+    async def chat_completion(
+        self,
+        prompt: str,
+        model: str = "alfred-4.2",
+        system_prompt: Optional[str] = None
+    ) -> str:
         endpoint = f"{self.base_url}/api/v2/chat/completions"
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": model,
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
-            ]
+            "messages": messages
         }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, headers=self.headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    return result["choices"][0]["message"]["content"]
-                else:
-                    raise Exception(f"Paradigm chat completion API error {response.status}: {await response.text()}")
-    
-    async def analyze_image(self, query: str, document_ids: List[str], model: str = None, private: bool = False) -> str:
+
+        try:
+            logger.info(f"💬 Chat completion: {prompt[:50]}...")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint,
+                    json=payload,
+                    headers=self.headers
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        answer = result["choices"][0]["message"]["content"]
+                        logger.info(f"✅ Chat completed ({len(answer)} chars)")
+                        return answer
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Chat failed: {response.status}")
+                        raise Exception(f"Chat completion failed: {response.status}")
+
+        except Exception as e:
+            logger.error(f"❌ Chat error: {str(e)}")
+            raise
+
+    async def upload_file(
+        self,
+        file_content: bytes,
+        filename: str,
+        collection_type: str = "private"
+    ) -> Dict[str, Any]:
+        endpoint = f"{self.base_url}/api/v2/files"
+
+        data = aiohttp.FormData()
+        data.add_field('file', file_content, filename=filename)
+        data.add_field('collection_type', collection_type)
+
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        try:
+            logger.info(f"📁 Uploading: {filename} ({len(file_content)} bytes)")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(endpoint, data=data, headers=headers) as response:
+                    if response.status in [200, 201]:
+                        result = await response.json()
+                        file_id = result.get("id") or result.get("file_id")
+                        logger.info(f"✅ File uploaded: ID={file_id}")
+                        return result
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Upload failed: {response.status}")
+                        raise Exception(f"File upload failed: {response.status}")
+
+        except Exception as e:
+            logger.error(f"❌ Upload error: {str(e)}")
+            raise
+
+    async def analyze_image(
+        self,
+        query: str,
+        document_ids: List[str],
+        model: Optional[str] = None,
+        private: bool = False
+    ) -> str:
         endpoint = f"{self.base_url}/api/v2/chat/image-analysis"
+
         payload = {
             "query": query,
             "document_ids": document_ids
@@ -203,14 +433,31 @@ class ParadigmClient:
             payload["model"] = model
         if private is not None:
             payload["private"] = private
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, headers=self.headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    return result.get("answer", "No analysis result provided")
-                else:
-                    raise Exception(f"Image analysis API error {response.status}: {await response.text()}")
+
+        try:
+            logger.info(f"🖼️ Image analysis: {query[:50]}...")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint,
+                    json=payload,
+                    headers=self.headers
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        answer = result.get("answer", "No analysis result provided")
+                        logger.info(f"✅ Image analysis completed")
+                        return answer
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Image analysis failed: {response.status}")
+                        raise Exception(f"Image analysis failed: {response.status}")
+
+        except Exception as e:
+            logger.error(f"❌ Image analysis error: {str(e)}")
+            raise
+
+
 
 # Initialize clients
 paradigm_client = ParadigmClient(LIGHTON_API_KEY, LIGHTON_BASE_URL)
@@ -233,9 +480,17 @@ For workflow steps that extract or process information, use structured formats (
 🚨🚨🚨 MANDATORY PATTERN FOR DOCUMENT WORKFLOWS 🚨🚨🚨
 EVERY workflow that needs documents MUST use this exact if/else pattern:
 
-if 'attached_file_ids' in globals() and attached_file_ids:
+# Check for uploaded files in both globals() and builtins (supports both Workflow Builder and standalone runner)
+import builtins
+attached_files = None
+if 'attached_file_ids' in globals() and globals()['attached_file_ids']:
+    attached_files = globals()['attached_file_ids']
+elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
+    attached_files = builtins.attached_file_ids
+
+if attached_files:
     # User uploaded files - use them directly (NO document_search!)
-    document_ids = [str(file_id) for file_id in attached_file_ids]
+    document_ids = [str(file_id) for file_id in attached_files]
     analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 else:
     # No uploaded files - search workspace
@@ -465,10 +720,17 @@ document_ids = [str(doc["id"]) for doc in documents]
 analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 
 ✅ CORRECT PATTERN - ALWAYS USE THIS:
-# Check for uploaded files first, then fallback to workspace search
-if 'attached_file_ids' in globals() and attached_file_ids:
+# Check for uploaded files in both globals() and builtins (supports both Workflow Builder and standalone runner)
+import builtins
+attached_files = None
+if 'attached_file_ids' in globals() and globals()['attached_file_ids']:
+    attached_files = globals()['attached_file_ids']
+elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
+    attached_files = builtins.attached_file_ids
+
+if attached_files:
     # User uploaded files - use them directly (NO document_search!)
-    document_ids = [str(file_id) for file_id in attached_file_ids]
+    document_ids = [str(file_id) for file_id in attached_files]
     analysis = await paradigm_client.analyze_documents_with_polling(
         "Your analysis query here",
         document_ids
@@ -502,7 +764,8 @@ answer = search_result.get("answer", "No answer provided")
 # Don't try to extract raw document content - use the answer field
 
 INCORRECT (DON'T DO THIS):
-file_ids=attached_file_ids if 'attached_file_ids' in globals() else None  # API doesn't accept None
+file_ids=attached_file_ids if 'attached_file_ids' in globals() else None  # Wrong: should use builtins
+if 'attached_file_ids' in globals():  # Wrong: should use hasattr(builtins, 'attached_file_ids')
 document_ids = [doc["id"] for doc in search_results.get("documents", [])]  # Should convert to strings
 import nltk  # External library not available
 answer = search_result["documents"][0].get("content", "")  # Raw content extraction
