@@ -173,6 +173,35 @@ class ParadigmClient:
         tool: str = "DocumentSearch",
         private: bool = True
     ) -> Dict[str, Any]:
+        '''
+        Search through documents using natural language queries.
+
+        Args:
+            query: Your search question (e.g., "What is the total amount?")
+            file_ids: Which files to search in (e.g., [123, 456])
+            workspace_ids: Which workspaces to search (optional)
+            chat_session_id: Chat session for context (optional)
+            model: Specific AI model to use (optional)
+            company_scope: Search company-wide documents
+            private_scope: Search private documents
+            tool: Search method - "DocumentSearch" (default) or "VisionDocumentSearch"
+                  Use "VisionDocumentSearch" for:
+                  - Scanned documents or images
+                  - Checkboxes or form fields
+                  - Complex layouts or tables
+                  - Poor OCR quality documents
+            private: Whether this request is private
+
+        Returns:
+            dict: Search results with "answer", "documents", and metadata
+
+        Example with Vision OCR:
+            result = await paradigm_client.document_search(
+                query="Quelle case est cochée dans la section C ?",
+                file_ids=[123],
+                tool="VisionDocumentSearch"
+            )
+        '''
         endpoint = f"{self.base_url}/api/v2/chat/document-search"
 
         payload = {
@@ -383,6 +412,36 @@ class ParadigmClient:
         model: str = "alfred-4.2",
         system_prompt: Optional[str] = None
     ) -> str:
+        '''
+        Get a chat completion response (like ChatGPT).
+
+        No documents involved - just a conversation with the AI.
+
+        Args:
+            prompt: Your question or instruction
+            model: Which AI model to use (default: alfred-4.2)
+            system_prompt: Optional instructions for the AI's behavior and output format
+                          Use this to enforce specific formats like JSON-only responses
+
+        Returns:
+            str: The AI's response
+
+        Example with JSON-only output:
+            result = await paradigm_client.chat_completion(
+                prompt="Vérifie que le nom de l'acheteur est identique dans les deux documents",
+                system_prompt=\'\'\'Tu es un assistant qui réponds UNIQUEMENT au format JSON VALIDE.
+                Le json doit contenir :
+                "is_correct" : un booléen (true ou false)
+                "details" : une phrase expliquant pourquoi la réponse est correcte ou non
+                \'\'\'
+            )
+            # Returns: {"is_correct": true, "details": "Les noms sont identiques"}
+
+        Example without system prompt:
+            result = await paradigm_client.chat_completion(
+                prompt="Explique-moi ce qu'est un SIRET"
+            )
+        '''
         endpoint = f"{self.base_url}/api/v2/chat/completions"
 
         messages = []
@@ -1470,6 +1529,8 @@ CRITICAL LANGUAGE PRESERVATION RULE:
 
 AVAILABLE PARADIGM API TOOLS:
 1. Document Search (paradigm_client.document_search) - Search through documents using natural language queries
+   - ADVANCED: Add tool="VisionDocumentSearch" for scanned documents, checkboxes, or complex layouts (uses OCR)
+   - Example: await paradigm_client.document_search(query="...", file_ids=[...], tool="VisionDocumentSearch")
 2. Document Analysis (paradigm_client.analyze_documents_with_polling) - Analyze specific documents with AI (max 5 documents at once)
 3. Chat Completion (paradigm_client.chat_completion) - General AI chat for text processing and analysis
 4. Image Analysis (paradigm_client.analyze_image) - Analyze images in documents (max 5 documents at once)
@@ -1477,6 +1538,8 @@ AVAILABLE PARADIGM API TOOLS:
 6. Filter Chunks (paradigm_client.filter_chunks) - Filter document chunks by relevance to a query, returns top N most relevant chunks with scores
 7. Get File Chunks (paradigm_client.get_file_chunks) - Retrieve all chunks from a document for inspection and debugging
 8. Query (paradigm_client.query) - Extract relevant chunks from knowledge base WITHOUT AI-generated response, ~30% faster for raw chunk retrieval
+   - ADVANCED: Add system_prompt parameter to enforce specific output format (e.g., JSON only)
+   - Example: await paradigm_client.query(prompt="...", system_prompt="Tu es un assistant qui réponds UNIQUEMENT au format JSON VALIDE. Le json doit contenir: 'is_correct' (boolean), 'details' (string)")
 9. Get File (paradigm_client.get_file) - Check file processing status and metadata
 10. Wait For Embedding (paradigm_client.wait_for_embedding) - Wait for uploaded file to be ready for searches (automatic polling)
 
@@ -1666,6 +1729,67 @@ INFORMATION PRESERVATION REQUIREMENTS:
 - ALL error conditions and fallback scenarios must be documented
 - ALL business rules and compliance requirements must be maintained
 - ALL decision trees and branching logic must be explicit
+
+**📊 STRUCTURED DATA OUTPUT FOR TABLES AND CHARTS:**
+
+CRITICAL: When the workflow involves statistics, comparisons, numerical data, or tabular information:
+- The workflow MUST return structured JSON data that the frontend can automatically render as tables and charts
+- This enables professional visualizations WITHOUT requiring manual PDF generation code
+
+**When to use structured output:**
+- ✅ Comparing multiple values (e.g., "Compare amounts from 5 invoices")
+- ✅ Statistics or aggregations (e.g., "Count occurrences", "Calculate averages")
+- ✅ Validation results across multiple items (e.g., "Check 10 fields")
+- ✅ Any numerical or tabular data that would benefit from visual representation
+
+**Recommended JSON structure:**
+```python
+return {
+    "summary": "Human-readable text summary",
+    "visualization": {
+        "type": "table",  # or "bar_chart", "pie_chart", "line_chart"
+        "title": "Chart/Table Title",
+        "data": [
+            {"label": "Item A", "value": 100, "status": "valid"},
+            {"label": "Item B", "value": 75, "status": "warning"},
+            {"label": "Item C", "value": 50, "status": "error"}
+        ],
+        "columns": ["label", "value", "status"]  # For tables
+    },
+    "details": "Additional information or full text report"
+}
+```
+
+**Supported visualization types:**
+- "table": Tabular data with columns and rows
+- "bar_chart": Bar chart for comparisons
+- "pie_chart": Pie chart for proportions
+- "line_chart": Line chart for trends over time
+
+**Example workflow step with structured output:**
+```
+STEP 3: Extract amounts from all invoices and return structured comparison data
+- Use document_search to find amounts in each invoice
+- Compile results into JSON format:
+  {
+    "summary": "Found 5 invoices with total amount of 12,345.67€",
+    "visualization": {
+      "type": "bar_chart",
+      "title": "Invoice Amounts Comparison",
+      "data": [
+        {"label": "Invoice 001", "value": 1234.56},
+        {"label": "Invoice 002", "value": 2345.67},
+        ...
+      ]
+    }
+  }
+- The frontend will automatically render this as a chart + table
+```
+
+**IMPORTANT**: Always include BOTH a text summary AND structured data so users can:
+1. Read the summary for quick understanding
+2. View the chart/table for visual analysis
+3. Download PDF with both text and visualizations
 
 LIMITATIONS TO CHECK FOR:
 - Web searching is NOT available - only document searching within Paradigm

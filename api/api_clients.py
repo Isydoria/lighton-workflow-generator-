@@ -245,11 +245,11 @@ async def paradigm_document_search(
 ) -> Dict[str, Any]:
     """
     Perform document search using LightOn Paradigm API via direct HTTP.
-    
+
     Searches through uploaded documents using semantic search capabilities.
     Returns relevant documents with chunks and metadata. Can be scoped to
     specific workspaces, files, or chat sessions.
-    
+
     Args:
         query: Search query in natural language
         workspace_ids: Optional list of workspace IDs to search within
@@ -258,15 +258,27 @@ async def paradigm_document_search(
         model: Optional specific model to use
         company_scope: Whether to search company-wide documents
         private_scope: Whether to search private documents
-        tool: Tool type (default: "DocumentSearch")
+        tool: Search method - "DocumentSearch" (default) or "VisionDocumentSearch"
+              Use "VisionDocumentSearch" for:
+              - Scanned documents or images
+              - Checkboxes or form fields
+              - Complex layouts or tables
+              - Poor OCR quality documents
         private: Whether request is private
-        
+
     Returns:
         dict: Search results with documents, answers, and metadata
-        
+
     Raises:
         Exception: If search API call fails or returns error
-        
+
+    Example with Vision OCR:
+        result = await paradigm_document_search(
+            query="Quelle case est cochée dans la section C ?",
+            file_ids=[123],
+            tool="VisionDocumentSearch"
+        )
+
     Note:
         Comprehensive logging includes query, results count, and document IDs
     """
