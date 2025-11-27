@@ -223,11 +223,23 @@ class ParadigmClient:
             model: Specific AI model to use (optional)
             company_scope: Search company-wide documents
             private_scope: Search private documents
-            tool: Search method ("DocumentSearch" or "VisionDocumentSearch")
+            tool: Search method - "DocumentSearch" (default) or "VisionDocumentSearch"
+                  Use "VisionDocumentSearch" for:
+                  - Scanned documents or images
+                  - Checkboxes or form fields
+                  - Complex layouts or tables
+                  - Poor OCR quality documents
             private: Whether this request is private
 
         Returns:
             dict: Search results with "answer", "documents", and metadata
+
+        Example with Vision OCR:
+            result = await client.document_search(
+                query="Quelle case est cochée dans la section C ?",
+                file_ids=[123],
+                tool="VisionDocumentSearch"
+            )
 
         Note:
             If tool="VisionDocumentSearch", it analyzes documents as images
@@ -518,10 +530,27 @@ class ParadigmClient:
         Args:
             prompt: Your question or instruction
             model: Which AI model to use (default: alfred-4.2)
-            system_prompt: Optional instructions for the AI's behavior
+            system_prompt: Optional instructions for the AI's behavior and output format
+                          Use this to enforce specific formats like JSON-only responses
 
         Returns:
             str: The AI's response
+
+        Example with JSON-only output:
+            result = await client.chat_completion(
+                prompt="Vérifie que le nom de l'acheteur est identique dans les deux documents",
+                system_prompt='''Tu es un assistant qui réponds UNIQUEMENT au format JSON VALIDE.
+                Le json doit contenir :
+                "is_correct" : un booléen (true ou false)
+                "details" : une phrase expliquant pourquoi la réponse est correcte ou non
+                '''
+            )
+            # Returns: {"is_correct": true, "details": "Les noms sont identiques"}
+
+        Example without system prompt:
+            result = await client.chat_completion(
+                prompt="Explique-moi ce qu'est un SIRET"
+            )
         """
         endpoint = f"{self.base_url}/api/v2/chat/completions"
 
@@ -1142,6 +1171,6 @@ class ParadigmClient:
 
 
 # Module metadata
-__version__ = "1.8.0"  # get_file + wait_for_embedding + Session Reuse (5.55x faster)
+__version__ = "1.9.0"  # tool parameter (VisionDocumentSearch) + system_prompt documentation
 __author__ = "LightOn Workflow Builder Team"
 __all__ = ["ParadigmClient"]
