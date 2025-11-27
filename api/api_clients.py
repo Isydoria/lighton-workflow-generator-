@@ -33,6 +33,55 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 # ============================================================================
+# JSON CLEANING UTILITIES
+# ============================================================================
+
+def clean_json_response(text: str) -> str:
+    """
+    Clean JSON response by removing markdown code blocks and extra whitespace.
+
+    Sometimes AI responses wrap JSON in markdown code blocks like:
+    ```json
+    {"key": "value"}
+    ```
+
+    This function removes those wrappers to get clean JSON that can be parsed.
+
+    Args:
+        text: Raw text response that may contain JSON wrapped in markdown
+
+    Returns:
+        str: Cleaned JSON string ready for parsing
+
+    Examples:
+        >>> clean_json_response('```json\\n{"name": "test"}\\n```')
+        '{"name": "test"}'
+
+        >>> clean_json_response('{"name": "test"}')
+        '{"name": "test"}'
+    """
+    if not text:
+        return text
+
+    # Remove markdown code block markers
+    text = text.strip()
+
+    # Remove ```json at the start
+    if text.startswith('```json'):
+        text = text[7:]  # Remove '```json'
+    elif text.startswith('```'):
+        text = text[3:]  # Remove '```'
+
+    # Remove ``` at the end
+    if text.endswith('```'):
+        text = text[:-3]
+
+    # Strip whitespace
+    text = text.strip()
+
+    return text
+
+# ============================================================================
 # ANTHROPIC CLAUDE API CLIENT (Direct HTTP)
 # ============================================================================
 
