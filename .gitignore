@@ -63,6 +63,7 @@ ANALYSE_WORKFLOW_SENIOR_UGAP_DC4.md
 COMPARAISON_WORKFLOWS.md
 RESUME_EXECUTIF_MILO.md
 test_workflow_dc4_simplifie.md
+TEST_UGAP_DC4_JANVIER_2025.md
 
 # Test files (à la racine uniquement, pas dans tests/)
 /test_*.py
