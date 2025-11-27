@@ -44,8 +44,8 @@ analysis = await paradigm.analyze_documents_with_polling(
 )
 ```
 
-Version: 1.3.0 (JSON Cleaning + Query Formulation Best Practices)
-Date: 2025-11-26
+Version: 1.4.0 (ask_question endpoint + Session Reuse)
+Date: 2025-11-27
 Author: LightOn Workflow Builder Team
 """
 
@@ -602,6 +602,99 @@ class ParadigmClient:
             logger.error(f"❌ Upload error: {str(e)}")
             raise
 
+    async def ask_question(
+        self,
+        file_id: int,
+        question: str
+    ) -> Dict[str, Any]:
+        """
+        Ask a question about a specific uploaded file and get relevant chunks.
+
+        This method is optimized for single-document queries. Use this instead of
+        document_search when you're asking a question about ONE specific document.
+
+        Endpoint: POST /api/v2/files/{id}/ask
+
+        Args:
+            file_id: The ID of the uploaded file to query
+            question: The question to ask about the file
+
+        Returns:
+            Dict containing:
+            - response: str - AI-generated answer to the question
+            - chunks: List[Dict] - Relevant document chunks with metadata
+                - id: int
+                - uuid: str (e.g. "3f885f64-5747-4562-b3fc-2c963f66afa6")
+                - content_id: str
+                - text: str - The actual chunk text
+                - metadata: Dict - Additional metadata
+                - document: int - Document ID
+                - chunk_type: str (e.g. "text")
+                - created_at: str (ISO datetime)
+                - updated_at: str (ISO datetime)
+
+        When to use:
+            ✅ Asking a question about ONE specific document
+            ✅ Looping through documents individually
+            ✅ Need both answer and source chunks
+
+            ❌ Searching across MULTIPLE documents (use document_search instead)
+            ❌ Need aggregated results from many files
+
+        Example:
+            # Single document query
+            result = await paradigm.ask_question(
+                file_id=123,
+                question="What is the total amount on this invoice?"
+            )
+            print(f"Answer: {result['response']}")
+            print(f"Found {len(result['chunks'])} relevant chunks")
+
+            # Loop through multiple documents
+            for doc_id in [123, 124, 125]:
+                result = await paradigm.ask_question(
+                    file_id=doc_id,
+                    question="Extract the client name"
+                )
+                print(f"Document {doc_id}: {result['response']}")
+
+        Raises:
+            Exception: If the API call fails or returns an error
+
+        Performance:
+            Uses session reuse internally for 5.55x faster performance
+            compared to creating a new session for each request.
+        """
+        endpoint = f"{self.base_url}/api/v2/files/{file_id}/ask"
+
+        payload = {
+            "question": question
+        }
+
+        try:
+            logger.info(f"📄 Asking question about file {file_id}")
+            logger.info(f"❓ QUESTION: {question}")
+
+            session = await self._get_session()
+            async with session.post(
+                endpoint,
+                json=payload,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    num_chunks = len(result.get('chunks', []))
+                    logger.info(f"✅ Got response with {num_chunks} chunks")
+                    return result
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Ask question failed: {response.status}")
+                    raise Exception(f"Ask question API error {response.status}: {error_text}")
+
+        except Exception as e:
+            logger.error(f"❌ Ask question error: {str(e)}")
+            raise
+
     async def analyze_image(
         self,
         query: str,
@@ -657,6 +750,6 @@ class ParadigmClient:
 
 
 # Module metadata
-__version__ = "1.1.0"  # Session reuse optimization for 5.55x performance improvement
+__version__ = "1.4.0"  # ask_question endpoint + Session Reuse (5.55x faster)
 __author__ = "LightOn Workflow Builder Team"
 __all__ = ["ParadigmClient"]
