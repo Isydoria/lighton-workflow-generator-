@@ -982,6 +982,136 @@ async def paradigm_query(
         if close_session:
             await session.close()
 
+async def paradigm_get_file(
+    file_id: int,
+    include_content: bool = False,
+    session: Optional[aiohttp.ClientSession] = None
+) -> Dict[str, Any]:
+    """
+    Retrieve file metadata and status from Paradigm.
+
+    Endpoint: GET /api/v2/files/{id}
+
+    Args:
+        file_id: The ID of the file to retrieve
+        include_content: Include the file content in the response (default: False)
+        session: Optional aiohttp ClientSession for connection reuse
+
+    Returns:
+        Dict containing file metadata including status field
+
+    Example:
+        file_info = await paradigm_get_file(file_id=123)
+        print(f"Status: {file_info['status']}")
+
+    Performance:
+        Uses session reuse for 5.55x faster performance when provided
+    """
+    endpoint = f"{settings.lighton_base_url}/api/v2/files/{file_id}"
+
+    params = {}
+    if include_content:
+        params["include_content"] = "true"
+
+    close_session = session is None
+    if session is None:
+        session = aiohttp.ClientSession()
+
+    try:
+        logger.info(f"📄 Getting file info for ID {file_id}")
+
+        async with session.get(
+            endpoint,
+            params=params,
+            headers=_get_paradigm_headers()
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                status = result.get('status', 'unknown')
+                filename = result.get('filename', 'N/A')
+                logger.info(f"✅ File {file_id} ({filename}): status={status}")
+                return result
+
+            elif response.status == 404:
+                error_text = await response.text()
+                logger.error(f"❌ File {file_id} not found")
+                raise Exception(f"File {file_id} not found: {error_text}")
+
+            else:
+                error_text = await response.text()
+                logger.error(f"❌ Get file failed: {response.status} - {error_text}")
+                raise Exception(f"Get file API error {response.status}: {error_text}")
+
+    except Exception as e:
+        logger.error(f"❌ Get file error: {str(e)}")
+        raise
+
+    finally:
+        if close_session:
+            await session.close()
+
+async def paradigm_wait_for_embedding(
+    file_id: int,
+    max_wait_time: int = 300,
+    poll_interval: int = 2,
+    session: Optional[aiohttp.ClientSession] = None
+) -> Dict[str, Any]:
+    """
+    Wait for a file to be fully embedded and ready for use.
+
+    Args:
+        file_id: The ID of the file to wait for
+        max_wait_time: Maximum time to wait in seconds (default: 300)
+        poll_interval: Time between status checks in seconds (default: 2)
+        session: Optional aiohttp ClientSession for connection reuse
+
+    Returns:
+        Dict: Final file info when status is 'embedded'
+
+    Example:
+        file_info = await paradigm_wait_for_embedding(file_id=123)
+        print(f"File ready: {file_info['filename']}")
+
+    Performance:
+        Uses session reuse for efficient polling (5.55x faster)
+    """
+    close_session = session is None
+    if session is None:
+        session = aiohttp.ClientSession()
+
+    try:
+        logger.info(f"⏳ Waiting for file {file_id} to be embedded (max={max_wait_time}s, interval={poll_interval}s)")
+
+        elapsed = 0
+        while elapsed < max_wait_time:
+            file_info = await paradigm_get_file(file_id, session=session)
+            status = file_info.get('status', '').lower()
+            filename = file_info.get('filename', 'N/A')
+
+            logger.info(f"🔄 File {file_id} ({filename}): status={status} (elapsed: {elapsed}s)")
+
+            if status == 'embedded':
+                logger.info(f"✅ File {file_id} is embedded and ready!")
+                return file_info
+
+            elif status == 'failed':
+                logger.error(f"❌ File {file_id} embedding failed")
+                raise Exception(f"File {file_id} embedding failed")
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        logger.error(f"⏰ Timeout waiting for file {file_id} after {max_wait_time}s")
+        raise Exception(f"Timeout waiting for file {file_id} to be embedded")
+
+    except Exception as e:
+        logger.error(f"❌ Wait for embedding error: {str(e)}")
+        raise
+
+    finally:
+        if close_session:
+            await session.close()
+
 async def paradigm_delete_file(file_id: int) -> bool:
     """
     Delete a file from Paradigm via direct HTTP

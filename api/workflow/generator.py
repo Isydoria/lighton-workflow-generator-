@@ -823,6 +823,119 @@ class ParadigmClient:
             logger.error(f"❌ Query error: {str(e)}")
             raise
 
+    async def get_file(
+        self,
+        file_id: int,
+        include_content: bool = False
+    ) -> Dict[str, Any]:
+        '''
+        Retrieve file metadata and status from Paradigm.
+
+        Endpoint: GET /api/v2/files/{id}
+
+        Args:
+            file_id: The ID of the file to retrieve
+            include_content: Include the file content in the response (default: False)
+
+        Returns:
+            Dict containing file metadata including status field
+
+        Example:
+            file_info = await paradigm.get_file(file_id=123)
+            print(f"Status: {file_info['status']}")
+
+        Performance:
+            Uses session reuse internally for 5.55x faster performance
+        '''
+        endpoint = f"{self.base_url}/api/v2/files/{file_id}"
+
+        params = {}
+        if include_content:
+            params["include_content"] = "true"
+
+        try:
+            logger.info(f"📄 Getting file info for ID {file_id}")
+
+            session = await self._get_session()
+            async with session.get(
+                endpoint,
+                params=params,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    status = result.get('status', 'unknown')
+                    filename = result.get('filename', 'N/A')
+                    logger.info(f"✅ File {file_id} ({filename}): status={status}")
+                    return result
+
+                elif response.status == 404:
+                    error_text = await response.text()
+                    logger.error(f"❌ File {file_id} not found")
+                    raise Exception(f"File {file_id} not found: {error_text}")
+
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Get file failed: {response.status}")
+                    raise Exception(f"Get file API error {response.status}: {error_text}")
+
+        except Exception as e:
+            logger.error(f"❌ Get file error: {str(e)}")
+            raise
+
+    async def wait_for_embedding(
+        self,
+        file_id: int,
+        max_wait_time: int = 300,
+        poll_interval: int = 2
+    ) -> Dict[str, Any]:
+        '''
+        Wait for a file to be fully embedded and ready for use.
+
+        Args:
+            file_id: The ID of the file to wait for
+            max_wait_time: Maximum time to wait in seconds (default: 300)
+            poll_interval: Time between status checks in seconds (default: 2)
+
+        Returns:
+            Dict: Final file info when status is 'embedded'
+
+        Example:
+            file_info = await paradigm.wait_for_embedding(file_id=123)
+            print(f"File ready: {file_info['filename']}")
+
+        Performance:
+            Uses session reuse internally for efficient polling (5.55x faster)
+        '''
+        try:
+            logger.info(f"⏳ Waiting for file {file_id} to be embedded (max={max_wait_time}s, interval={poll_interval}s)")
+
+            elapsed = 0
+            while elapsed < max_wait_time:
+                file_info = await self.get_file(file_id)
+                status = file_info.get('status', '').lower()
+                filename = file_info.get('filename', 'N/A')
+
+                logger.info(f"🔄 File {file_id} ({filename}): status={status} (elapsed: {elapsed}s)")
+
+                if status == 'embedded':
+                    logger.info(f"✅ File {file_id} is embedded and ready!")
+                    return file_info
+
+                elif status == 'failed':
+                    logger.error(f"❌ File {file_id} embedding failed")
+                    raise Exception(f"File {file_id} embedding failed")
+
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+            logger.error(f"⏰ Timeout waiting for file {file_id} after {max_wait_time}s")
+            raise Exception(f"Timeout waiting for file {file_id} to be embedded")
+
+        except Exception as e:
+            logger.error(f"❌ Wait for embedding error: {str(e)}")
+            raise
+
     async def analyze_image(
         self,
         query: str,
@@ -1364,6 +1477,8 @@ AVAILABLE PARADIGM API TOOLS:
 6. Filter Chunks (paradigm_client.filter_chunks) - Filter document chunks by relevance to a query, returns top N most relevant chunks with scores
 7. Get File Chunks (paradigm_client.get_file_chunks) - Retrieve all chunks from a document for inspection and debugging
 8. Query (paradigm_client.query) - Extract relevant chunks from knowledge base WITHOUT AI-generated response, ~30% faster for raw chunk retrieval
+9. Get File (paradigm_client.get_file) - Check file processing status and metadata
+10. Wait For Embedding (paradigm_client.wait_for_embedding) - Wait for uploaded file to be ready for searches (automatic polling)
 
 ENHANCEMENT GUIDELINES:
 1. Break down the workflow into clear, specific steps
