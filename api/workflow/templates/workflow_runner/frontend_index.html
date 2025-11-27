@@ -286,6 +286,7 @@
                     <span id="exec-time" class="execution-info-value"></span>
                 </div>
             </div>
+            <div id="visualization-container" style="display:none; margin-bottom: 20px; background: white; padding: 20px; border-radius: 8px;"></div>
             <div id="results-content" class="results-content"></div>
             <button id="btn-download-pdf" class="btn-download-pdf" onclick="downloadPDF()" style="display:none;">
                 📄 Télécharger le rapport PDF
@@ -295,6 +296,12 @@
 
     <!-- jsPDF Library for client-side PDF generation -->
     <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <!-- jsPDF-AutoTable for professional tables in PDFs -->
+    <script src="https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <!-- Chart.js for chart generation -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <script>
         const API_BASE = 'http://localhost:8000';
@@ -463,9 +470,32 @@
                 const data = await response.json();
                 currentExecutionData = data;
 
+                // Check if result contains structured visualization data
+                let resultData = data.result;
+                let hasVisualization = false;
+
+                try {
+                    // Try to parse result as JSON to check for structured data
+                    if (typeof resultData === 'string') {
+                        const parsed = JSON.parse(resultData);
+                        if (parsed.visualization && parsed.visualization.type) {
+                            hasVisualization = true;
+                            renderVisualization(parsed.visualization);
+                            resultData = parsed.summary || parsed.details || resultData;
+                        }
+                    } else if (resultData.visualization && resultData.visualization.type) {
+                        hasVisualization = true;
+                        renderVisualization(resultData.visualization);
+                        resultData = resultData.summary || resultData.details || JSON.stringify(resultData, null, 2);
+                    }
+                } catch (e) {
+                    // Not JSON or no visualization - display as text
+                    console.log('No structured visualization data found');
+                }
+
                 // Display results
                 resultsContainer.classList.add('success');
-                resultsContent.textContent = data.result || 'Exécution terminée avec succès';
+                resultsContent.textContent = resultData || 'Exécution terminée avec succès';
 
                 // Display execution info
                 executionInfo.style.display = 'flex';
@@ -482,6 +512,138 @@
             } finally {
                 btn.disabled = false;
             }
+        }
+
+        // Global variable to store rendered chart for PDF export
+        let currentChart = null;
+
+        // Render visualization (table or chart) in the visualization container
+        function renderVisualization(vizData) {
+            const container = document.getElementById('visualization-container');
+            container.innerHTML = ''; // Clear previous content
+            container.style.display = 'block';
+
+            // Add title
+            if (vizData.title) {
+                const title = document.createElement('h3');
+                title.textContent = vizData.title;
+                title.style.marginBottom = '15px';
+                title.style.color = '#333';
+                container.appendChild(title);
+            }
+
+            const type = vizData.type;
+            const data = vizData.data || [];
+
+            if (type === 'table') {
+                renderTable(container, data, vizData.columns);
+            } else if (['bar_chart', 'pie_chart', 'line_chart'].includes(type)) {
+                renderChart(container, type, data, vizData.title);
+            }
+        }
+
+        // Render HTML table
+        function renderTable(container, data, columns) {
+            const table = document.createElement('table');
+            table.style.width = '100%';
+            table.style.borderCollapse = 'collapse';
+            table.style.marginTop = '10px';
+
+            // Create header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            (columns || Object.keys(data[0] || {})).forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = col;
+                th.style.border = '1px solid #ddd';
+                th.style.padding = '12px';
+                th.style.backgroundColor = '#667eea';
+                th.style.color = 'white';
+                th.style.textAlign = 'left';
+                th.style.fontWeight = '600';
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            // Create body
+            const tbody = document.createElement('tbody');
+            data.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.style.backgroundColor = index % 2 === 0 ? '#f9f9f9' : 'white';
+                (columns || Object.keys(row)).forEach(col => {
+                    const td = document.createElement('td');
+                    td.textContent = row[col] !== undefined ? row[col] : '';
+                    td.style.border = '1px solid #ddd';
+                    td.style.padding = '10px';
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+
+            container.appendChild(table);
+        }
+
+        // Render Chart.js chart
+        function renderChart(container, type, data, title) {
+            const canvas = document.createElement('canvas');
+            canvas.id = 'result-chart';
+            canvas.style.maxHeight = '400px';
+            container.appendChild(canvas);
+
+            const ctx = canvas.getContext('2d');
+
+            // Prepare chart data
+            const labels = data.map(item => item.label || item.name || '');
+            const values = data.map(item => item.value || item.count || 0);
+
+            const chartConfig = {
+                type: type === 'bar_chart' ? 'bar' : type === 'pie_chart' ? 'pie' : 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: title || 'Données',
+                        data: values,
+                        backgroundColor: type === 'pie_chart' ? [
+                            'rgba(102, 126, 234, 0.8)',
+                            'rgba(118, 75, 162, 0.8)',
+                            'rgba(40, 167, 69, 0.8)',
+                            'rgba(255, 193, 7, 0.8)',
+                            'rgba(220, 53, 69, 0.8)',
+                            'rgba(23, 162, 184, 0.8)'
+                        ] : 'rgba(102, 126, 234, 0.8)',
+                        borderColor: type === 'pie_chart' ? 'white' : 'rgba(102, 126, 234, 1)',
+                        borderWidth: type === 'pie_chart' ? 2 : 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: type === 'pie_chart',
+                            position: 'bottom'
+                        },
+                        title: {
+                            display: false
+                        }
+                    },
+                    scales: type !== 'pie_chart' ? {
+                        y: {
+                            beginAtZero: true
+                        }
+                    } : {}
+                }
+            };
+
+            // Destroy previous chart if exists
+            if (currentChart) {
+                currentChart.destroy();
+            }
+
+            // Create new chart
+            currentChart = new Chart(ctx, chartConfig);
         }
 
         // Helper function to clean text for PDF (remove emojis, keep readable text)
@@ -681,12 +843,109 @@
                 doc.setTextColor(0, 0, 0);
                 doc.text(encodeForPDF("Résultats"), marginLeft, yPosition);
 
-                // Result content
                 yPosition += 10;
+
+                // === ADD VISUALIZATION (TABLE OR CHART) IF PRESENT ===
+                let resultData = currentExecutionData.result;
+                let visualizationData = null;
+                let resultText = resultData;
+
+                try {
+                    // Try to parse result as JSON to extract visualization
+                    if (typeof resultData === 'string') {
+                        const parsed = JSON.parse(resultData);
+                        if (parsed.visualization && parsed.visualization.type) {
+                            visualizationData = parsed.visualization;
+                            resultText = parsed.summary || parsed.details || resultData;
+                        }
+                    } else if (resultData.visualization && resultData.visualization.type) {
+                        visualizationData = resultData.visualization;
+                        resultText = resultData.summary || resultData.details || JSON.stringify(resultData, null, 2);
+                    }
+                } catch (e) {
+                    // No structured data - continue with text only
+                }
+
+                // Render visualization if present
+                if (visualizationData) {
+                    const vizType = visualizationData.type;
+                    const vizData = visualizationData.data || [];
+                    const vizTitle = visualizationData.title || '';
+
+                    // Add visualization title
+                    if (vizTitle) {
+                        doc.setFontSize(11);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(102, 126, 234);
+                        doc.text(encodeForPDF(vizTitle), marginLeft, yPosition);
+                        yPosition += 8;
+                    }
+
+                    if (vizType === 'table' && vizData.length > 0) {
+                        // Render table using jspdf-autotable
+                        const columns = visualizationData.columns || Object.keys(vizData[0]);
+                        const rows = vizData.map(row => columns.map(col => encodeForPDF(String(row[col] || ''))));
+
+                        doc.autoTable({
+                            startY: yPosition,
+                            head: [columns.map(col => encodeForPDF(String(col)))],
+                            body: rows,
+                            theme: 'grid',
+                            headStyles: {
+                                fillColor: [102, 126, 234],
+                                textColor: [255, 255, 255],
+                                fontStyle: 'bold',
+                                fontSize: 10
+                            },
+                            bodyStyles: {
+                                fontSize: 9
+                            },
+                            alternateRowStyles: {
+                                fillColor: [249, 249, 249]
+                            },
+                            margin: { left: marginLeft, right: marginRight }
+                        });
+
+                        yPosition = doc.lastAutoTable.finalY + 15;
+
+                    } else if (['bar_chart', 'pie_chart', 'line_chart'].includes(vizType) && currentChart) {
+                        // Render chart as image in PDF
+                        try {
+                            const canvas = document.getElementById('result-chart');
+                            if (canvas) {
+                                const chartImage = canvas.toDataURL('image/png', 1.0);
+
+                                // Calculate dimensions to fit page
+                                const imgWidth = contentWidth * 0.8;
+                                const imgHeight = (canvas.height / canvas.width) * imgWidth;
+
+                                // Check if we need a new page
+                                if (yPosition + imgHeight > pageHeight - marginBottom) {
+                                    yPosition = addNewPage();
+                                }
+
+                                // Center the image
+                                const xOffset = marginLeft + (contentWidth - imgWidth) / 2;
+                                doc.addImage(chartImage, 'PNG', xOffset, yPosition, imgWidth, imgHeight);
+                                yPosition += imgHeight + 15;
+                            }
+                        } catch (e) {
+                            console.error('Failed to add chart to PDF:', e);
+                        }
+                    }
+
+                    // Check if we need a new page after visualization
+                    if (yPosition > pageHeight - marginBottom - 15) {
+                        yPosition = addNewPage();
+                    }
+                }
+
+                // Result content
                 doc.setFontSize(10);
                 doc.setFont('helvetica', 'normal');
+                doc.setTextColor(0, 0, 0);
 
-                const result = encodeForPDF(currentExecutionData.result || "Aucun résultat disponible");
+                const result = encodeForPDF(resultText || "Aucun résultat disponible");
                 const lines = result.split('\n');
 
                 // Section numbering
