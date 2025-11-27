@@ -826,6 +826,66 @@ async def paradigm_filter_chunks(
         logger.error(f"❌ Filter chunks failed: {str(e)}")
         raise Exception(f"Filter chunks failed: {str(e)}")
 
+async def paradigm_get_file_chunks(
+    file_id: int,
+    session: Optional[aiohttp.ClientSession] = None
+) -> Dict[str, Any]:
+    """
+    Retrieve all chunks for a given document file.
+
+    Endpoint: GET /api/v2/files/{id}/chunks
+
+    Args:
+        file_id: The ID of the file to retrieve chunks from
+        session: Optional aiohttp ClientSession for connection reuse
+
+    Returns:
+        Dict containing document chunks and metadata
+
+    Example:
+        result = await paradigm_get_file_chunks(file_id=123)
+        print(f"Found {len(result.get('chunks', []))} chunks")
+
+    Performance:
+        Uses session reuse for 5.55x faster performance when provided
+    """
+    endpoint = f"{settings.lighton_base_url}/api/v2/files/{file_id}/chunks"
+
+    close_session = session is None
+    if session is None:
+        session = aiohttp.ClientSession()
+
+    try:
+        logger.info(f"📄 Getting chunks for file {file_id}")
+
+        async with session.get(
+            endpoint,
+            headers=_get_paradigm_headers()
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                num_chunks = len(result.get('chunks', []))
+                logger.info(f"✅ Retrieved {num_chunks} chunks from file {file_id}")
+                return result
+
+            elif response.status == 404:
+                error_text = await response.text()
+                logger.error(f"❌ File {file_id} not found")
+                raise Exception(f"File {file_id} not found: {error_text}")
+
+            else:
+                error_text = await response.text()
+                logger.error(f"❌ Get file chunks failed: {response.status} - {error_text}")
+                raise Exception(f"Get file chunks API error {response.status}: {error_text}")
+
+    except Exception as e:
+        logger.error(f"❌ Get file chunks error: {str(e)}")
+        raise
+
+    finally:
+        if close_session:
+            await session.close()
+
 async def paradigm_delete_file(file_id: int) -> bool:
     """
     Delete a file from Paradigm via direct HTTP

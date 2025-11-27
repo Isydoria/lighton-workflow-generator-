@@ -44,7 +44,7 @@ analysis = await paradigm.analyze_documents_with_polling(
 )
 ```
 
-Version: 1.5.0 (filter_chunks endpoint + Session Reuse)
+Version: 1.6.0 (get_file_chunks endpoint + Session Reuse)
 Date: 2025-11-27
 Author: LightOn Workflow Builder Team
 """
@@ -834,6 +834,58 @@ class ParadigmClient:
             logger.error(f"❌ Filter chunks error: {str(e)}")
             raise
 
+    async def get_file_chunks(
+        self,
+        file_id: int
+    ) -> Dict[str, Any]:
+        """
+        Retrieve all chunks for a given document file.
+
+        Endpoint: GET /api/v2/files/{id}/chunks
+
+        Args:
+            file_id: The ID of the file to retrieve chunks from
+
+        Returns:
+            Dict containing document chunks and metadata
+
+        Example:
+            result = await paradigm.get_file_chunks(file_id=123)
+            print(f"Found {len(result.get('chunks', []))} chunks")
+
+        Performance:
+            Uses session reuse internally for 5.55x faster performance
+        """
+        endpoint = f"{self.base_url}/api/v2/files/{file_id}/chunks"
+
+        try:
+            logger.info(f"📄 Getting chunks for file {file_id}")
+
+            session = await self._get_session()
+            async with session.get(
+                endpoint,
+                headers=self.headers
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    num_chunks = len(result.get('chunks', []))
+                    logger.info(f"✅ Retrieved {num_chunks} chunks from file {file_id}")
+                    return result
+
+                elif response.status == 404:
+                    error_text = await response.text()
+                    logger.error(f"❌ File {file_id} not found")
+                    raise Exception(f"File {file_id} not found: {error_text}")
+
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Get file chunks failed: {response.status}")
+                    raise Exception(f"Get file chunks API error {response.status}: {error_text}")
+
+        except Exception as e:
+            logger.error(f"❌ Get file chunks error: {str(e)}")
+            raise
+
     async def analyze_image(
         self,
         query: str,
@@ -889,6 +941,6 @@ class ParadigmClient:
 
 
 # Module metadata
-__version__ = "1.5.0"  # filter_chunks endpoint + Session Reuse (5.55x faster)
+__version__ = "1.6.0"  # get_file_chunks endpoint + Session Reuse (5.55x faster)
 __author__ = "LightOn Workflow Builder Team"
 __all__ = ["ParadigmClient"]
