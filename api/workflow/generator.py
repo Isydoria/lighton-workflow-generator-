@@ -1632,6 +1632,98 @@ document_ids = [doc["id"] for doc in search_results.get("documents", [])]  # Sho
 import nltk  # External library not available
 answer = search_result["documents"][0].get("content", "")  # Raw content extraction
 
+🎯🎯🎯 CODE SIMPLICITY AND ROBUSTNESS PRINCIPLES 🎯🎯🎯
+
+CRITICAL: Generate SIMPLE, ROBUST code that works reliably. Complex code with regex, custom parsing, and utility functions often contains bugs.
+
+**PRINCIPLE 1: PREFER API INTELLIGENCE OVER CUSTOM CODE**
+❌ BAD: Writing complex regex patterns to extract dates, numbers, or structured data
+✅ GOOD: Ask the API to extract and format the data directly
+
+Example BAD approach (generates bugs):
+```
+# DON'T DO THIS - Complex regex prone to errors
+pattern = r'(\\d{1,2})[/-](\\d{1,2})[/-](\\d{4})'  # Bug: [/-] creates invalid range
+dates = re.findall(pattern, text)
+```
+
+Example GOOD approach (simple and reliable):
+```
+# DO THIS - Let AI extract and normalize
+query = "Extract all dates from this document and format them as DD/MM/YYYY. List each date found."
+result = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+```
+
+**PRINCIPLE 2: AVOID CUSTOM UTILITY FUNCTIONS**
+❌ BAD: Creating normalize_date(), extract_reference(), parse_amount() functions
+✅ GOOD: Use AI prompts with clear formatting instructions
+
+Why? Custom functions require:
+- Regex patterns (often buggy)
+- Edge case handling
+- Format conversion logic
+- Validation code
+All of this adds complexity and potential bugs.
+
+**PRINCIPLE 3: USE DIRECT API QUERIES WITH CLEAR INSTRUCTIONS**
+Instead of extracting raw text and parsing it yourself, ask the API to give you exactly what you need:
+
+❌ BAD:
+```
+# Get raw text
+text = await paradigm_client.analyze_documents_with_polling("Get all text", doc_ids)
+# Parse with regex (buggy)
+amounts = extract_all_amounts(text)
+# Normalize (more code)
+normalized = [normalize_amount(a) for a in amounts]
+```
+
+✅ GOOD:
+```
+# Ask for exactly what you need, formatted correctly
+query = "List all monetary amounts in this document. Format: 'AMOUNT EUR' (e.g., '1000.50 EUR'). One per line."
+result = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+# Result is already formatted correctly - no parsing needed!
+```
+
+**PRINCIPLE 4: WHEN REGEX IS NECESSARY, USE SIMPLE PATTERNS**
+If you MUST use regex (rare cases), follow these rules:
+- Use simple patterns without character classes containing special chars
+- WRONG: r'[/-.]' (creates range) → RIGHT: r'[/\\-.]' (escape the dash) or r'[/.-]' (dash at end)
+- Test with common inputs mentally before generating
+- Prefer multiple simple patterns over one complex pattern
+
+**PRINCIPLE 5: KEEP WORKFLOWS SHORT AND FOCUSED**
+- If a workflow gets too long (>300 lines), it's probably too complex
+- Break into smaller steps that rely on AI intelligence
+- Don't create elaborate data structures or processing pipelines
+- Trust the API to handle complexity
+
+**PRINCIPLE 6: ERROR HANDLING OVER PREVENTION**
+❌ BAD: Complex validation to prevent all possible errors
+✅ GOOD: Simple try/except with clear error messages
+
+```
+try:
+    result = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    return result
+except Exception as e:
+    return f"Analysis failed: {str(e)}. Please verify documents are uploaded correctly."
+```
+
+**IMPLEMENTATION CHECKLIST:**
+Before generating code, ask yourself:
+1. Can the API do this directly instead of me writing code? (Usually YES)
+2. Am I creating custom parsing/extraction functions? (Don't do it - use AI)
+3. Am I using complex regex? (Simplify or use AI)
+4. Is my code >200 lines? (Too complex - simplify)
+5. Would this code work reliably for edge cases? (If unsure, simplify)
+
+**REMEMBER:**
+- Simple code = fewer bugs = happier users
+- API intelligence > custom code complexity
+- When in doubt, ask the AI to format the data instead of parsing it yourself
+
 🚨🚨🚨 AMBIGUITY DETECTION AND CLARIFICATION REQUESTS 🚨🚨🚨
 
 CRITICAL: Before generating workflow code, ALWAYS analyze the workflow description for ambiguous terms that could lead to extraction errors.
