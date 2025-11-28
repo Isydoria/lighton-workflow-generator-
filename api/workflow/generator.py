@@ -1078,6 +1078,188 @@ IMPORTANT LIBRARY RESTRICTIONS:
 STRUCTURED OUTPUT BETWEEN STEPS:
 For workflow steps that extract or process information, use structured formats (JSON, lists, dicts) that make the output easy for subsequent steps to parse and use. Choose the most appropriate structure for each step's specific purpose.
 
+CRITICAL: DETECTING MISSING VALUES IN EXTRACTION
+When extracting information from documents, ALWAYS check if the extraction was successful before comparing values.
+
+1. **Identify Missing/Empty Values**:
+   Common patterns indicating NO information found:
+   - "Non trouvé", "Not found", "No information"
+   - "Je n'ai pas", "I don't have", "Aucune information"
+   - "Pourriez-vous préciser", "Could you specify"
+   - Empty strings, None values
+   - Generic AI responses asking for clarification
+
+2. **Create Helper Function to Check Missing Values**:
+   ```python
+   def is_value_missing(value: str) -> bool:
+       if not value or not value.strip():
+           return True
+
+       missing_indicators = [
+           "non trouvé", "not found", "no information",
+           "je n'ai pas", "i don't have", "aucune information",
+           "pourriez-vous", "could you specify",
+           "pas d'informations", "no data available",
+           "impossible de trouver", "cannot find",
+           "aucune mention", "no mention"
+       ]
+
+       value_lower = value.lower()
+       return any(indicator in value_lower for indicator in missing_indicators)
+   ```
+
+3. **CRITICAL EXTRACTION WORKFLOW PATTERN**:
+   When extracting values from API responses, ALWAYS follow this exact pattern:
+
+   ```python
+   # Step 1: Extract raw values from API responses
+   raw_value_dc4 = step_search_dc4.get("answer", "")
+   raw_value_avis = step_search_avis.get("answer", "")
+
+   # Step 2: Check for missing values BEFORE any normalization or comparison
+   dc4_missing = is_value_missing(raw_value_dc4)
+   avis_missing = is_value_missing(raw_value_avis)
+
+   # Step 3a: If EITHER value is missing, mark as missing and skip comparison
+   if dc4_missing or avis_missing:
+       display_value_dc4 = "Non trouvé" if dc4_missing else normalize_text(raw_value_dc4)
+       display_value_avis = "Non trouvé" if avis_missing else normalize_text(raw_value_avis)
+       status = "ATTENTION Donnees manquantes"
+   # Step 3b: If BOTH values exist, normalize and compare
+   else:
+       display_value_dc4 = normalize_text(raw_value_dc4)
+       display_value_avis = normalize_text(raw_value_avis)
+
+       # Now perform comparison using chat_completion or direct comparison
+       if values_match(display_value_dc4, display_value_avis):
+           status = "OK Conforme"
+       else:
+           status = "ERREUR Non conforme"
+   ```
+
+4. **DO NOT DO THIS** (Common mistakes that cause false positives):
+
+   ❌ WRONG: Normalizing before checking if missing
+   ```python
+   value_dc4 = normalize_text(step_search_dc4.get("answer", ""))
+   if is_value_missing(value_dc4):  # TOO LATE! Already normalized
+   ```
+
+   ❌ WRONG: Replacing values before comparison
+   ```python
+   if is_value_missing(value_dc4):
+       value_dc4 = "Non trouvé"
+   # Later: comparing "Non trouvé" with another missing message → FALSE POSITIVE!
+   ```
+
+   ❌ WRONG: Sending missing values to chat_completion
+   ```python
+   # If both contain "Je n'ai pas...", chat will say they're similar!
+   comparison = await chat_completion(f"Compare: '{value_dc4}' vs '{value_avis}'")
+   ```
+
+5. **Apply to Comparison Workflows**:
+   - Check is_value_missing() on RAW values IMMEDIATELY after extraction
+   - Store the missing status in boolean variables
+   - Use if/else to separate missing case from comparison case
+   - Only call comparison functions (chat_completion, etc.) when BOTH values exist
+   - Return "ATTENTION Donnees manquantes" if EITHER is missing
+   - Return "OK Conforme" ONLY if both values exist AND match
+   - Return "ERREUR Non conforme" if both exist BUT differ
+
+   **CRITICAL - Do NOT use dummy tasks for parallel execution:**
+   ❌ WRONG approach (causes crashes):
+   ```python
+   if value1_missing or value2_missing:
+       status = "ATTENTION"
+       comparison_tasks.append(asyncio.sleep(0))  # Dummy task - BAD!
+   else:
+       comparison_tasks.append(chat_completion(...))
+
+   results = await asyncio.gather(*comparison_tasks)
+   # Later: results[index] is None for dummy tasks → crashes!
+   ```
+
+   ✅ CORRECT approach (determine status immediately, no dummy tasks):
+   ```python
+   # Determine ALL statuses sequentially for missing values
+   if ref_dc4_missing or ref_avis_missing:
+       ref_status = "ATTENTION Donnees manquantes"
+   else:
+       # Only add comparison tasks for non-missing values
+       ref_comparison_task = chat_completion(...)
+
+   if title_dc4_missing or title_avis_missing:
+       title_status = "ATTENTION Donnees manquantes"
+   else:
+       title_comparison_task = chat_completion(...)
+
+   # Gather ONLY the comparison tasks that were created
+   comparison_tasks = []
+   if not (ref_dc4_missing or ref_avis_missing):
+       comparison_tasks.append(ref_comparison_task)
+   if not (title_dc4_missing or title_avis_missing):
+       comparison_tasks.append(title_comparison_task)
+
+   # Execute comparisons in parallel
+   if comparison_tasks:
+       comparison_results = await asyncio.gather(*comparison_tasks)
+
+       # Process results in order
+       result_index = 0
+       if not (ref_dc4_missing or ref_avis_missing):
+           ref_status = "Conforme" if "identique" in comparison_results[result_index].lower() else "Non conforme"
+           result_index += 1
+       if not (title_dc4_missing or title_avis_missing):
+           title_status = "Conforme" if "equivalent" in comparison_results[result_index].lower() else "Non conforme"
+           result_index += 1
+   ```
+
+6. **Update Table Data Structure**:
+   ```python
+   {
+       "Champ": "Numéro de référence",
+       "Valeur DC4": display_value_dc4,  # Either normalized value or "Non trouvé"
+       "Valeur Avis": display_value_avis,  # Either normalized value or "Non trouvé"
+       "Statut": status  # Determined using the pattern above
+   }
+   ```
+
+WHY THIS MATTERS:
+- Prevents false positives where missing values are marked as "conformes"
+- Prevents sending missing values to chat_completion which will incorrectly match them
+- Clearly distinguishes between: data found+matching, data found+different, data missing
+- Provides actionable feedback to users about what information is missing
+
+REMEMBER: Check for missing FIRST on raw values, THEN normalize/compare only if both exist!
+
+7. **CRITICAL: Precise Extraction Queries**:
+   When extracting specific values like reference numbers, IDs, dates, or amounts, your search query MUST ask for ONLY the value, not descriptive text.
+
+   ❌ WRONG queries that return too much text:
+   - "numéro de référence marché" → Returns: "Le numéro de référence du marché est 21U031"
+   - "date du contrat" → Returns: "La date du contrat est le 15 janvier 2024"
+
+   ✅ CORRECT queries that return clean values:
+   - "Extraire uniquement le numéro de référence, sans texte explicatif" → Returns: "21U031"
+   - "Quelle est la date ? Répondre au format JJ/MM/AAAA uniquement" → Returns: "15/01/2024"
+
+   When comparing extracted values, they should be directly comparable. If the API returns "Le numéro est 21U031" from one doc and "21U031" from another, they will incorrectly appear as different.
+
+   ALWAYS phrase extraction queries to get ONLY the target value:
+   ```python
+   # For reference numbers
+   query = "Extraire uniquement le numéro de référence du marché, sans aucun texte explicatif ni formulation. Répondre avec le numéro seul."
+
+   # For dates
+   query = "Quelle est la date d'exécution ? Répondre uniquement avec la date au format JJ/MM/AAAA, sans texte."
+
+   # For amounts
+   query = "Quel est le montant ? Répondre uniquement avec le chiffre et l'unité (ex: 50000 EUR), sans texte explicatif."
+   ```
+
+   This ensures values are directly comparable without complex normalization or regex extraction.
+
 🚨🚨🚨 MANDATORY PATTERN FOR DOCUMENT WORKFLOWS 🚨🚨🚨
 EVERY workflow that needs documents MUST use this exact if/else pattern:
 
@@ -1450,6 +1632,170 @@ document_ids = [doc["id"] for doc in search_results.get("documents", [])]  # Sho
 import nltk  # External library not available
 answer = search_result["documents"][0].get("content", "")  # Raw content extraction
 
+🚨🚨🚨 AMBIGUITY DETECTION AND CLARIFICATION REQUESTS 🚨🚨🚨
+
+CRITICAL: Before generating workflow code, ALWAYS analyze the workflow description for ambiguous terms that could lead to extraction errors.
+
+WHAT ARE AMBIGUOUS TERMS?
+Terms that could refer to MULTIPLE different fields or values in documents. Common examples:
+- "reference number" → Could be: procedure number, market number, contract ID, CPV code, invoice number, etc.
+- "date" → Could be: execution date, signature date, publication date, invoice date, deadline, etc.
+- "amount" → Could be: total amount, net amount, tax amount, monthly amount, annual budget, etc.
+- "name" → Could be: company name, project name, document name, person name, etc.
+- "identifier" → Could be: SIRET, SIREN, VAT number, registration number, etc.
+
+WHY THIS MATTERS:
+Administrative and business documents contain MANY identifiers, dates, and amounts. Without specificity, the API may extract the WRONG value, leading to incorrect comparisons or analyses.
+
+EXAMPLE OF AMBIGUITY PROBLEM:
+User says: "Compare the reference number between DC4 and AAPC documents"
+❌ PROBLEM: "reference number" is ambiguous
+- DC4 may contain: Procédure n° 22U012, Marché 617529
+- AAPC may contain: Numéro de référence 22U012, Code CPV 72000000
+- Without clarification, the workflow might extract CPV code (72000000) instead of procedure number (22U012)
+
+WHEN TO REQUEST CLARIFICATION:
+If the workflow description contains ANY of these patterns, you MUST ask for clarification:
+
+1. **Generic field names without document section references**:
+   - "extract the reference number" → ASK: "Which reference number? From which section?"
+   - "find the date" → ASK: "Which date specifically? (execution date, signature date, etc.)"
+   - "get the amount" → ASK: "Which amount? (total, net, tax, etc.)"
+
+2. **Vague comparative tasks**:
+   - "compare the identifiers" → ASK: "Which specific identifiers? What format do they have?"
+   - "verify the dates match" → ASK: "Which dates? Are there multiple date fields?"
+
+3. **Missing document structure information**:
+   - "extract company information" → ASK: "Which specific fields? Name? SIRET? Address? Phone?"
+   - "find the contract details" → ASK: "Which details specifically? Number? Date? Amount? All of them?"
+
+4. **Terms that could match multiple document types or fields**:
+   - "numéro de marché" in administrative docs → Could be procedure number, market ID, contract number
+   - "code" in any document → Could be CPV code, postal code, product code, reference code
+
+HOW TO REQUEST CLARIFICATION:
+DO NOT generate code immediately. Instead, DETECT ambiguous terms and list specific questions:
+
+EXAMPLE CLARIFICATION REQUEST FORMAT:
+```
+⚠️ CLARIFICATIONS NÉCESSAIRES
+
+J'ai détecté des termes ambigus qui nécessitent des précisions :
+
+1. **"numéro de référence"** - Plusieurs identifiants possibles dans les documents administratifs :
+   - Est-ce le numéro de procédure (ex: 22U012) ?
+   - Est-ce le numéro de marché (ex: 617529) ?
+   - Est-ce autre chose ?
+   - Dans quelle section du document se trouve-t-il ?
+
+2. **"date"** - Plusieurs dates peuvent être présentes :
+   - Date d'exécution ?
+   - Date de signature ?
+   - Date de publication ?
+   - Quel format attendu ? (JJ/MM/AAAA, AAAA-MM-JJ, etc.)
+
+3. **"montant"** - Plusieurs montants possibles :
+   - Montant total TTC ?
+   - Montant net HT ?
+   - Montant des taxes ?
+   - Avec quelle devise ? (EUR, USD, etc.)
+
+Pouvez-vous préciser pour chaque point ci-dessus ?
+```
+
+LANGUAGE-AGNOSTIC DETECTION:
+Work in ANY language (French, English, etc.). Detect ambiguity based on semantic meaning, not just keywords:
+
+French ambiguous terms: "référence", "numéro", "date", "montant", "nom", "identifiant", "code"
+English ambiguous terms: "reference", "number", "date", "amount", "name", "identifier", "code"
+
+WHEN NOT TO REQUEST CLARIFICATION:
+✅ SPECIFIC descriptions with section references are CLEAR - generate code directly:
+- "Extract the SIRET number (14 digits) from the 'Informations légales' section"
+- "Find the invoice date in DD/MM/YYYY format from the header"
+- "Get the Numéro de référence from section II.1.1"
+- "Extract the Procédure n° from section B - Objet du marché public"
+
+✅ Workflows that don't extract specific fields (summaries, classifications, etc.):
+- "Summarize the document in 3 sentences"
+- "Classify this document as invoice, contract, or report"
+- "Extract all company names mentioned in the document"
+
+IMPLEMENTATION:
+Before generating code, ALWAYS check the workflow description for ambiguous field references.
+If found, output the clarification request format shown above and WAIT for user response before generating code.
+
+🚨🚨🚨 INTERACTIVE VALIDATION PATTERN FOR MULTIPLE CANDIDATES 🚨🚨🚨
+
+CRITICAL: When extracting specific fields from documents, the API may find MULTIPLE potential values. Your generated code MUST handle this by presenting candidates to users for validation.
+
+WHEN TO USE INTERACTIVE VALIDATION:
+Use this pattern when extracting fields that commonly appear multiple times in documents:
+- Identifiers (reference numbers, codes, IDs)
+- Dates (documents often have multiple dates)
+- Amounts (invoices have subtotals, taxes, totals)
+- Names (may list multiple companies, people, or entities)
+
+WHY THIS MATTERS:
+Even with specific queries, documents may contain multiple values that partially match. Interactive validation ensures the CORRECT value is used for comparisons or analysis.
+
+HOW TO IMPLEMENT INTERACTIVE VALIDATION:
+When the API response contains multiple potential values or when you're uncertain which value is correct, generate code that:
+
+1. **Extracts ALL candidate values with their context**
+2. **Presents them to the user in a clear format**
+3. **Allows user to verify or select the correct value**
+
+INTERACTIVE VALIDATION IMPLEMENTATION APPROACH:
+When you detect that extracted data might contain multiple candidate values:
+- First, ask the AI to analyze the extraction response and identify if multiple candidates exist
+- Create a validation prompt asking: "Does this extraction contain multiple candidate values? If yes, list them with context."
+- If multiple candidates are found, include a validation notice in the final result
+- Format the notice as: "VALIDATION REQUIRED - Multiple candidates detected:" followed by the list
+- If only one clear value, proceed automatically with that value
+
+This pattern is particularly useful for:
+- Dates (execution date vs signature date vs publication date)
+- Reference numbers (procedure number vs market number vs CPV code)
+- Amounts (total vs net vs tax amounts)
+- Names (company name vs person name vs project name)
+
+EXAMPLE OUTPUT FOR USER:
+```
+⚠️ VALIDATION NÉCESSAIRE
+
+Plusieurs valeurs candidates ont été trouvées pour "numéro de référence" :
+
+1. 22U012 (contexte: "Procédure n° 22U012" dans section B)
+2. 617529 (contexte: "Marché 617529" dans section informations générales)
+3. 72000000 (contexte: "Code(s) CPV additionnel(s) : 72000000" dans section II.6)
+
+⚠️ ATTENTION: Le code CPV (72000000) est un code de classification, PAS un numéro de référence.
+
+Veuillez vérifier manuellement laquelle de ces valeurs doit être utilisée pour la comparaison.
+```
+
+WHEN TO SKIP INTERACTIVE VALIDATION:
+✅ Skip validation for:
+- Non-comparative workflows (summaries, classifications)
+- Fields that are guaranteed unique (SIRET is always 14 digits)
+- When the query is extremely specific with section references
+- Boolean checks (document exists or not)
+
+COMBINE WITH SPECIFIC QUERIES:
+Interactive validation is a SAFETY NET, not a replacement for specific queries.
+ALWAYS try to make queries as specific as possible FIRST, then use validation as backup.
+
+Example workflow:
+1. Use specific query: "Extract the Numéro de référence from section II.1.1"
+2. Check for multiple candidates in response
+3. If multiple found, present validation UI to user
+4. If single value, proceed automatically
+
+LANGUAGE-AGNOSTIC:
+Work in ANY language. Adapt the validation messages to match the user's workflow description language.
+
 Generate the complete self-contained workflow code that implements the exact logic described.
 
 CRITICAL: NO PLACEHOLDER CODE - NEVER use 'pass' statements, NEVER use placeholder comments, EVERY function must be fully implemented with working code, ALL code must be ready to execute immediately."""
@@ -1808,6 +2154,78 @@ LIMITATIONS TO CHECK FOR:
 - External API calls (except Paradigm) are NOT available, unless full documentation for these is provided by the user in their initial description
 - Complex data processing libraries (pandas, numpy, etc.) are NOT available - try to avoid them if possible, if you do need these, clearly specify what imports are needed in the step description
 - Only built-in Python libraries and aiohttp are available
+
+🚨🚨🚨 CRITICAL: AMBIGUITY DETECTION AND CLARIFICATION REQUESTS 🚨🚨🚨
+
+BEFORE creating the enhanced workflow steps, ALWAYS analyze the user's description for AMBIGUOUS TERMS that could lead to incorrect data extraction.
+
+**WHAT ARE AMBIGUOUS TERMS?**
+Terms that could refer to MULTIPLE different fields in documents. Common examples:
+- "reference number" / "numéro de référence" → Could be: procedure number, market number, contract ID, CPV code, invoice number, etc.
+- "date" → Could be: execution date, signature date, publication date, invoice date, deadline, etc.
+- "amount" / "montant" → Could be: total amount, net amount, tax amount, monthly amount, annual budget, etc.
+- "name" / "nom" → Could be: company name, project name, document name, person name, etc.
+- "identifier" / "identifiant" → Could be: SIRET, SIREN, VAT number, registration number, etc.
+- "code" → Could be: CPV code, postal code, product code, reference code, etc.
+
+**WHY THIS MATTERS:**
+Administrative and business documents contain MANY identifiers, dates, and amounts. Without specificity, you may extract the WRONG value.
+
+**WHEN TO ADD CLARIFICATION QUESTIONS:**
+If the workflow description contains ANY of these patterns, you MUST add clarification questions:
+
+1. **Generic field names without section references**:
+   - "extract the reference number" → ADD QUESTION: "Which specific reference number? From which document section? What format (numbers, letters, both)? Are there any identifiers to exclude (like CPV codes)?"
+   - "find the date" → ADD QUESTION: "Which date specifically (execution, signature, publication, etc.)? What format expected?"
+   - "get the amount" → ADD QUESTION: "Which amount (total, net, tax, etc.)? With which currency?"
+
+2. **Vague comparative tasks**:
+   - "compare the identifiers" → ADD QUESTION: "Which specific identifiers? What format? What sections?"
+   - "verify dates match" → ADD QUESTION: "Which dates? Are there multiple date fields in each document?"
+
+3. **Missing document structure info**:
+   - "extract company information" → ADD QUESTION: "Which specific fields (name, SIRET, address, phone, all)?"
+   - "find contract details" → ADD QUESTION: "Which details (number, date, amount, parties, all)?"
+
+**EXAMPLE CLARIFICATION IN QUESTIONS AND LIMITATIONS:**
+```
+QUESTIONS AND LIMITATIONS:
+⚠️ AMBIGUITY DETECTED - Clarification needed:
+
+1. **"numéro de référence"** is ambiguous in administrative documents:
+   - Do you mean the procedure number (e.g., 22U012)?
+   - Do you mean the market number (e.g., 617529)?
+   - Do you mean something else?
+   - In which section of each document should I look?
+   - What format does it have (numeric only, alphanumeric, etc.)?
+   - Are there any codes to EXCLUDE (e.g., CPV codes like 72000000 are classification codes, not reference numbers)?
+
+2. **"date"** - Multiple dates may exist:
+   - Do you mean execution date, signature date, or publication date?
+   - What format is expected (DD/MM/YYYY, YYYY-MM-DD, etc.)?
+
+Please provide these clarifications so I can generate specific extraction queries.
+```
+
+**WHEN NOT TO REQUEST CLARIFICATION:**
+✅ CLEAR descriptions with specifics DON'T need questions:
+- "Extract the SIRET number (14 digits) from the 'Informations légales' section"
+- "Find the invoice date in DD/MM/YYYY format from the header"
+- "Get the Numéro de référence from section II.1.1 (not the CPV code)"
+- "Extract the Procédure n° from section B - Objet du marché public"
+
+✅ Non-extraction workflows DON'T need questions:
+- "Summarize the document"
+- "Classify document type"
+
+**LANGUAGE-AGNOSTIC:**
+Detect ambiguity in ANY language (French, English, etc.) based on semantic meaning.
+
+**IMPLEMENTATION:**
+When you detect ambiguous terms in the user's description:
+1. Create the workflow steps as best you can
+2. In "QUESTIONS AND LIMITATIONS", add a section "⚠️ AMBIGUITY DETECTED - Clarification needed:" with specific questions
+3. This allows the user to provide clarifications BEFORE code generation
 
 OUTPUT FORMAT:
 CRITICAL: Provide your response as PLAIN TEXT ONLY. 
