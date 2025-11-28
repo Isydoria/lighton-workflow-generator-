@@ -99,6 +99,7 @@ CRITICAL INSTRUCTIONS:
 6. *** EVERY FUNCTION MUST BE FULLY IMPLEMENTED WITH WORKING CODE ***
 7. *** NO STUB FUNCTIONS - ALL CODE MUST BE EXECUTABLE AND FUNCTIONAL ***
 8. *** ALWAYS USE asyncio.gather() FOR INDEPENDENT PARALLEL TASKS - IMPROVES PERFORMANCE 3-10x ***
+9. *** ParadigmClient MUST ALWAYS INCLUDE upload_file() METHOD - REQUIRED FOR FILE UPLOADS ***
 
 REQUIRED STRUCTURE:
 ```python
@@ -121,6 +122,17 @@ class ParadigmClient:
 
     Session reuse eliminates connection overhead (TCP handshake, SSL negotiation)
     on every API call, as recommended by Paradigm documentation.
+
+    ⚠️ MANDATORY: ALWAYS include these methods in your generated code:
+    - __init__
+    - _get_session
+    - close
+    - document_search
+    - analyze_documents_with_polling
+    - document_analysis_start
+    - document_analysis_get_result
+    - chat_completion
+    - upload_file  <-- CRITICAL: Always include this method!
     '''
 
     def __init__(self, api_key: str, base_url: str = "https://paradigm.lighton.ai"):
