@@ -1654,16 +1654,17 @@ query = "Extract all dates from this document and format them as DD/MM/YYYY. Lis
 result = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 ```
 
-**PRINCIPLE 2: AVOID CUSTOM UTILITY FUNCTIONS**
-❌ BAD: Creating normalize_date(), extract_reference(), parse_amount() functions
+**PRINCIPLE 2: MINIMIZE CUSTOM UTILITY FUNCTIONS (but use when needed)**
+❌ BAD: Creating complex parsing functions with regex like normalize_date_with_regex(), extract_reference_pattern()
 ✅ GOOD: Use AI prompts with clear formatting instructions
+✅ ACCEPTABLE: Simple helper functions for data manipulation (deduplicate, format output, type checking)
 
-Why? Custom functions require:
-- Regex patterns (often buggy)
-- Edge case handling
-- Format conversion logic
-- Validation code
-All of this adds complexity and potential bugs.
+When to use helper functions:
+- ✅ Simple data manipulation: remove_duplicates(), format_markdown_output()
+- ✅ Type checking and validation: isinstance() checks, safe data access
+- ✅ Output formatting: create structured reports from AI responses
+- ❌ Complex regex parsing: Let AI handle it instead
+- ❌ Date/number normalization with patterns: Ask AI to normalize
 
 **PRINCIPLE 3: USE DIRECT API QUERIES WITH CLEAR INSTRUCTIONS**
 Instead of extracting raw text and parsing it yourself, ask the API to give you exactly what you need:
@@ -1699,14 +1700,42 @@ If you MUST use regex (rare cases), follow these rules:
 - Don't create elaborate data structures or processing pipelines
 - Trust the API to handle complexity
 
-**PRINCIPLE 6: ERROR HANDLING OVER PREVENTION**
-❌ BAD: Complex validation to prevent all possible errors
-✅ GOOD: Simple try/except with clear error messages
+**PRINCIPLE 6: ROBUST DATA ACCESS AND ERROR HANDLING**
+CRITICAL: API responses may have varying structures. ALWAYS access data safely to avoid crashes.
 
+❌ WRONG - Assuming structure without checking:
+```
+# This CRASHES if results_1a is a list instead of dict!
+for doc in results_1a.get('documents', [])
+    doc_id = doc['id']  # Also crashes if 'id' key missing
+```
+
+✅ CORRECT - Defensive programming with type checks:
+```
+# Check type before accessing dict methods
+if isinstance(results_1a, dict):
+    documents = results_1a.get('documents', [])
+elif isinstance(results_1a, list):
+    documents = results_1a
+else:
+    documents = []
+
+# Use .get() with defaults for safe access
+for doc in documents:
+    if isinstance(doc, dict):
+        doc_id = doc.get('id', 'unknown')
+        doc_name = doc.get('filename', f'Document {doc_id}')
+```
+
+Always wrap risky operations in try/except:
 ```
 try:
     result = await paradigm_client.analyze_documents_with_polling(query, document_ids)
-    return result
+    # Safe result handling
+    if isinstance(result, dict):
+        return result.get('analysis', str(result))
+    else:
+        return str(result)
 except Exception as e:
     return f"Analysis failed: {str(e)}. Please verify documents are uploaded correctly."
 ```
@@ -1714,15 +1743,17 @@ except Exception as e:
 **IMPLEMENTATION CHECKLIST:**
 Before generating code, ask yourself:
 1. Can the API do this directly instead of me writing code? (Usually YES)
-2. Am I creating custom parsing/extraction functions? (Don't do it - use AI)
-3. Am I using complex regex? (Simplify or use AI)
-4. Is my code >200 lines? (Too complex - simplify)
-5. Would this code work reliably for edge cases? (If unsure, simplify)
+2. Am I checking data types with isinstance() before accessing? (CRITICAL - prevents crashes)
+3. Am I using .get() instead of direct [] access for dicts? (Always use .get() for safety)
+4. Am I creating complex parsing functions with regex? (Let AI handle it instead)
+5. Is my code >300 lines? (Probably too complex - simplify)
+6. Have I wrapped API calls in try/except? (Always do this)
 
 **REMEMBER:**
-- Simple code = fewer bugs = happier users
-- API intelligence > custom code complexity
-- When in doubt, ask the AI to format the data instead of parsing it yourself
+- Type checking = preventing crashes = reliable workflows
+- Use isinstance() before calling dict/list methods
+- Use .get() for all dict access with sensible defaults
+- Simple code with good error handling > complex code that crashes
 
 🚨🚨🚨 AMBIGUITY DETECTION AND CLARIFICATION REQUESTS 🚨🚨🚨
 
