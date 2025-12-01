@@ -544,10 +544,16 @@
 
         // Render HTML table
         function renderTable(container, data, columns) {
+            // Create table wrapper for horizontal scroll
+            const tableWrapper = document.createElement('div');
+            tableWrapper.style.overflowX = 'auto';
+            tableWrapper.style.marginTop = '10px';
+            tableWrapper.style.width = '100%';
+
             const table = document.createElement('table');
             table.style.width = '100%';
             table.style.borderCollapse = 'collapse';
-            table.style.marginTop = '10px';
+            table.style.minWidth = '600px'; // Minimum width to prevent squishing
 
             // Create header
             const thead = document.createElement('thead');
@@ -561,6 +567,7 @@
                 th.style.color = 'white';
                 th.style.textAlign = 'left';
                 th.style.fontWeight = '600';
+                th.style.whiteSpace = 'nowrap'; // Prevent header wrapping
                 headerRow.appendChild(th);
             });
             thead.appendChild(headerRow);
@@ -576,13 +583,18 @@
                     td.textContent = row[col] !== undefined ? row[col] : '';
                     td.style.border = '1px solid #ddd';
                     td.style.padding = '10px';
+                    td.style.maxWidth = '300px'; // Limit cell width
+                    td.style.wordWrap = 'break-word'; // Allow text wrapping
+                    td.style.overflowWrap = 'break-word'; // Modern browsers
+                    td.style.whiteSpace = 'normal'; // Allow wrapping
                     tr.appendChild(td);
                 });
                 tbody.appendChild(tr);
             });
             table.appendChild(tbody);
 
-            container.appendChild(table);
+            tableWrapper.appendChild(table);
+            container.appendChild(tableWrapper);
         }
 
         // Render Chart.js chart
