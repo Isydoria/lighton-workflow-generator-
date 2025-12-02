@@ -64,9 +64,9 @@ COMPARAISON_WORKFLOWS.md
 RESUME_EXECUTIF_MILO.md
 test_workflow_dc4_simplifie.md
 
-# Test files
-test_*.py
-test_*.json
+# Test files (à la racine uniquement, pas dans tests/)
+/test_*.py
+/test_*.json
 
 # Startup scripts with API keys
 start.bat
