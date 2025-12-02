@@ -1448,6 +1448,13 @@ elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
 if attached_files:
     # User uploaded files - choose API based on workflow type:
 
+    # 🚨 CRITICAL: Wait for file indexing BEFORE any API calls
+    # PDF files need 30-120 seconds for OCR processing and indexing
+    # Without this delay, you'll get 500 errors or empty results
+    logger.info("⏳ Waiting for uploaded files to be indexed by Paradigm...")
+    await asyncio.sleep(60)  # 60 seconds for standard PDFs, increase to 120 for large files
+    logger.info("✅ Files should be indexed, proceeding with workflow...")
+
     # FOR EXTRACTION (CV, forms, invoices, structured data):
     # Use ask_question() for fast, targeted extraction from ONE document
     file_id = int(attached_files[0])
@@ -1513,6 +1520,11 @@ if attached_files:
 
 # ✅ CORRECT Example 1: CV extraction (use ask_question)
 if attached_files:
+    # CRITICAL: Wait for indexing first!
+    logger.info("⏳ Waiting 60 seconds for file indexing...")
+    await asyncio.sleep(60)
+    logger.info("✅ Proceeding with extraction...")
+
     file_id = int(attached_files[0])
     skills_result = await paradigm_client.ask_question(
         file_id=file_id,
@@ -1525,6 +1537,11 @@ else:
 
 # ✅ CORRECT Example 2: Long document summarization (use analyze_documents_with_polling)
 if attached_files:
+    # CRITICAL: Wait for indexing first!
+    logger.info("⏳ Waiting 60 seconds for file indexing...")
+    await asyncio.sleep(60)
+    logger.info("✅ Proceeding with analysis...")
+
     document_ids = [str(file_id) for file_id in attached_files]
     summary = await paradigm_client.analyze_documents_with_polling(
         "Provide comprehensive summary of this research report", document_ids
