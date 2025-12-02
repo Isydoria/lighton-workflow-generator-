@@ -307,6 +307,9 @@ class ParadigmClient:
     - document_analysis_get_result
     - chat_completion
     - upload_file  <-- CRITICAL: Always include this method!
+    - get_file  <-- CRITICAL: Required for checking file status!
+    - wait_for_embedding  <-- CRITICAL: Required for waiting until files are ready!
+    - ask_question  <-- CRITICAL: Required for extracting data from uploaded files!
     '''
 
     def __init__(self, api_key: str, base_url: str = "https://paradigm.lighton.ai"):
@@ -1434,9 +1437,13 @@ REMEMBER: Check for missing FIRST on raw values, THEN normalize/compare only if 
 
    This ensures values are directly comparable without complex normalization or regex extraction.
 
-🚨🚨🚨 MANDATORY PATTERN FOR DOCUMENT WORKFLOWS 🚨🚨🚨
-EVERY workflow that needs documents MUST use this exact if/else pattern:
+🚨🚨🚨 MANDATORY: COPY THIS EXACT CODE FOR ALL DOCUMENT WORKFLOWS 🚨🚨🚨
 
+*** YOU MUST COPY AND PASTE THE CODE BELOW VERBATIM INTO YOUR execute_workflow() FUNCTION ***
+*** THIS IS NOT AN EXAMPLE - THIS IS THE REQUIRED IMPLEMENTATION ***
+*** ADAPT ONLY THE EXTRACTION QUERIES - KEEP ALL THE STRUCTURE ***
+
+```python
 # Check for uploaded files in both globals() and builtins (supports both Workflow Builder and standalone runner)
 import builtins
 attached_files = None
@@ -1446,57 +1453,65 @@ elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
     attached_files = builtins.attached_file_ids
 
 if attached_files:
-    # User uploaded files - choose API based on workflow type:
+    # User uploaded files - MANDATORY: Wait for embedding FIRST, then query
 
-    # 🚨 CRITICAL: Wait for file embedding/indexing BEFORE any API calls
-    # PDF files need OCR processing and embedding before they can be queried
+    # 🚨 STEP 1: WAIT FOR FILE EMBEDDING (MANDATORY - DO NOT SKIP!)
+    # PDF files need 30-120 seconds OCR processing before they can be queried
     file_id = int(attached_files[0])
     logger.info(f"⏳ Waiting for file {file_id} to be fully embedded and ready...")
 
     try:
-        # Actively check file status with wait_for_embedding (polls every 2 seconds)
+        # Actively poll file status every 2 seconds (max 300 seconds)
         file_info = await paradigm_client.wait_for_embedding(
             file_id=file_id,
-            max_wait_time=300,  # Wait up to 5 minutes
+            max_wait_time=300,  # Wait up to 5 minutes for large PDFs
             poll_interval=2      # Check status every 2 seconds
         )
         logger.info(f"✅ File {file_id} is ready! Status: {file_info.get('status')}")
     except Exception as e:
-        # If wait_for_embedding fails, fall back to simple wait
+        # If wait_for_embedding fails, fall back to fixed wait
         logger.warning(f"⚠️ Could not verify file status: {e}")
         logger.info("⏳ Falling back to 90-second wait...")
         await asyncio.sleep(90)
         logger.info("✅ Proceeding after fallback wait...")
 
+    # 🚨 STEP 2: QUERY THE FILE WITH APPROPRIATE API
     # FOR EXTRACTION (CV, forms, invoices, structured data):
-    # Try ask_question() first (fast: 2-5 seconds), fallback to document_search if unavailable
+    # Use ask_question() with fallback to document_search()
     try:
         result = await paradigm_client.ask_question(
             file_id=file_id,
-            question="Extract skills, experience, and education from this CV"
+            question="Your extraction query here"  # ADAPT THIS QUERY TO YOUR WORKFLOW
         )
         extracted_data = result['response']  # ask_question returns 'response'
     except Exception as ask_err:
-        # Fallback: Use document_search with file_ids if ask_question is unavailable
+        # Fallback: Use document_search if ask_question is unavailable
         logger.warning(f"⚠️ ask_question failed ({ask_err}), falling back to document_search")
         result = await paradigm_client.document_search(
-            query="Extract skills, experience, and education from this CV",
+            query="Your extraction query here",  # ADAPT THIS QUERY TO YOUR WORKFLOW
             file_ids=[file_id]
         )
         extracted_data = result['answer']  # document_search returns 'answer'
 
     # FOR SUMMARIZATION (long reports, multi-page documents):
-    # Use analyze_documents_with_polling() for comprehensive analysis
-    document_ids = [str(file_id) for file_id in attached_files]
-    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    # Use analyze_documents_with_polling() for comprehensive analysis (2-5 minutes)
+    # document_ids = [str(file_id) for file_id in attached_files]
+    # analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 
 else:
     # No uploaded files - search workspace with document_search()
     search_results = await paradigm_client.document_search(query)
     document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
     analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+```
 
-NEVER skip the if/else check. NEVER call document_search when attached_file_ids exists.
+*** END OF MANDATORY CODE - COPY EVERYTHING BETWEEN THE ``` MARKERS ***
+
+CRITICAL RULES:
+1. ALWAYS wait for file embedding BEFORE querying (wait_for_embedding or asyncio.sleep)
+2. NEVER skip the if/else check for attached_files
+3. NEVER call document_search() when attached_file_ids exists (use ask_question instead)
+4. ALWAYS include fallback from ask_question() to document_search() for robustness
 
 ⚠️ CRITICAL API SELECTION RULES FOR UPLOADED FILES:
 
