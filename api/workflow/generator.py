@@ -1448,21 +1448,42 @@ elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
 if attached_files:
     # User uploaded files - choose API based on workflow type:
 
-    # 🚨 CRITICAL: Wait for file indexing BEFORE any API calls
-    # PDF files need 30-120 seconds for OCR processing and indexing
-    # Without this delay, you'll get 500 errors or empty results
-    logger.info("⏳ Waiting for uploaded files to be indexed by Paradigm...")
-    await asyncio.sleep(60)  # 60 seconds for standard PDFs, increase to 120 for large files
-    logger.info("✅ Files should be indexed, proceeding with workflow...")
+    # 🚨 CRITICAL: Wait for file embedding/indexing BEFORE any API calls
+    # PDF files need OCR processing and embedding before they can be queried
+    file_id = int(attached_files[0])
+    logger.info(f"⏳ Waiting for file {file_id} to be fully embedded and ready...")
+
+    try:
+        # Actively check file status with wait_for_embedding (polls every 2 seconds)
+        file_info = await paradigm_client.wait_for_embedding(
+            file_id=file_id,
+            max_wait_time=300,  # Wait up to 5 minutes
+            poll_interval=2      # Check status every 2 seconds
+        )
+        logger.info(f"✅ File {file_id} is ready! Status: {file_info.get('status')}")
+    except Exception as e:
+        # If wait_for_embedding fails, fall back to simple wait
+        logger.warning(f"⚠️ Could not verify file status: {e}")
+        logger.info("⏳ Falling back to 90-second wait...")
+        await asyncio.sleep(90)
+        logger.info("✅ Proceeding after fallback wait...")
 
     # FOR EXTRACTION (CV, forms, invoices, structured data):
-    # Use ask_question() for fast, targeted extraction from ONE document
-    file_id = int(attached_files[0])
-    result = await paradigm_client.ask_question(
-        file_id=file_id,
-        question="Extract skills, experience, and education from this CV"
-    )
-    extracted_data = result['response']  # Note: ask_question returns 'response', not 'answer'
+    # Try ask_question() first (fast: 2-5 seconds), fallback to document_search if unavailable
+    try:
+        result = await paradigm_client.ask_question(
+            file_id=file_id,
+            question="Extract skills, experience, and education from this CV"
+        )
+        extracted_data = result['response']  # ask_question returns 'response'
+    except Exception as ask_err:
+        # Fallback: Use document_search with file_ids if ask_question is unavailable
+        logger.warning(f"⚠️ ask_question failed ({ask_err}), falling back to document_search")
+        result = await paradigm_client.document_search(
+            query="Extract skills, experience, and education from this CV",
+            file_ids=[file_id]
+        )
+        extracted_data = result['answer']  # document_search returns 'answer'
 
     # FOR SUMMARIZATION (long reports, multi-page documents):
     # Use analyze_documents_with_polling() for comprehensive analysis
