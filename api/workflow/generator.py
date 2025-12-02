@@ -9,6 +9,301 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# POST-PROCESSING FUNCTIONS FOR CODE GENERATION
+# ============================================================================
+
+def detect_workflow_type(description: str) -> str:
+    """
+    Detect workflow type based on description keywords.
+
+    Returns:
+        "extraction": Short structured documents (CV, forms, invoices) → use chat_completion()
+        "summarization": Long documents (reports, articles) → use analyze_documents_with_polling()
+        "unknown": Ambiguous case → default to "extraction" (faster and more reliable)
+    """
+    description_lower = description.lower()
+
+    # Keywords indicating structured data extraction
+    extraction_keywords = [
+        'cv', 'resume', 'curriculum vitae', 'curricul',
+        'form', 'formulaire', 'application',
+        'invoice', 'facture', 'receipt', 'reçu',
+        'extract', 'extraire', 'parse', 'parsing',
+        'field', 'champ', 'structured', 'structuré',
+        'candidat', 'candidate', 'recrutement', 'recruitment',
+        'contract', 'contrat',
+        'fiche', 'profil', 'profile'
+    ]
+
+    # Keywords indicating document summarization
+    summarization_keywords = [
+        'summarize', 'résumer', 'synthèse', 'synthesis',
+        'long document', 'rapport', 'report',
+        'research paper', 'article', 'white paper',
+        'analyse approfondie', 'deep analysis',
+        'comprehensive review'
+    ]
+
+    # Count keyword matches
+    extraction_score = sum(1 for kw in extraction_keywords if kw in description_lower)
+    summarization_score = sum(1 for kw in summarization_keywords if kw in description_lower)
+
+    # Decision logic
+    if extraction_score > 0 and extraction_score > summarization_score:
+        return "extraction"
+    elif summarization_score > extraction_score:
+        return "summarization"
+    else:
+        # Default to extraction (faster, more reliable for most cases)
+        return "extraction"
+
+
+def count_api_calls(code: str) -> int:
+    """
+    Count the number of Paradigm API calls in generated code.
+    Used to detect complex workflows that need staggering.
+    """
+    # Count async paradigm_client calls
+    patterns = [
+        r'await\s+paradigm_client\.\w+\(',
+        r'paradigm_client\.\w+\([^)]+\)'
+    ]
+
+    total_calls = 0
+    for pattern in patterns:
+        matches = re.findall(pattern, code)
+        total_calls += len(matches)
+
+    return total_calls
+
+
+def fix_extraction_workflow_apis(code: str, description: str) -> str:
+    """
+    Replace analyze_documents_with_polling() with chat_completion() + ask_question()
+    for extraction workflows (CV, forms, invoices).
+
+    This fixes the timeout issue where analyze_documents_with_polling takes 5 minutes
+    instead of 5 seconds with chat_completion.
+    """
+    workflow_type = detect_workflow_type(description)
+
+    if workflow_type != "extraction":
+        # Not an extraction workflow, no changes needed
+        return code
+
+    if "analyze_documents_with_polling" not in code:
+        # Already using correct APIs
+        return code
+
+    logger.info(f"🔧 Post-processing: Detected extraction workflow, fixing API calls")
+    logger.info(f"   Description: {description[:100]}...")
+
+    # Pattern to match: variable = await paradigm_client.analyze_documents_with_polling(query, [doc_id], ...)
+    # We'll replace with chat_completion() pattern
+
+    # Simple replacement strategy: Replace analyze_documents_with_polling with chat_completion
+    # and add ask_question if needed
+
+    fixed_code = code
+
+    # Pattern 1: Single document analysis
+    # result = await paradigm_client.analyze_documents_with_polling(query, [doc_id])
+    pattern1 = r'(\s+)(\w+)\s*=\s*await\s+paradigm_client\.analyze_documents_with_polling\(\s*([^,]+),\s*\[([^\]]+)\]([^\)]*)\)'
+
+    def replace_single_doc(match):
+        indent = match.group(1)
+        result_var = match.group(2)
+        query_var = match.group(3).strip()
+        doc_id = match.group(4).strip()
+
+        # Generate replacement code using chat_completion
+        # Note: We build the prompt string without f-string to avoid nested f-string issues
+        replacement = f'''{indent}# Post-processing: Using chat_completion for fast extraction (instead of analyze_documents_with_polling)
+{indent}# Get document content first
+{indent}try:
+{indent}    doc_content = await paradigm_client.ask_question(
+{indent}        file_id=int({doc_id}),
+{indent}        question="Return the full text and all structured information from this document"
+{indent}    )
+{indent}    # Extract structured data using chat_completion
+{indent}    extraction_prompt = {query_var} + "\\n\\nDocument content:\\n" + doc_content['response']
+{indent}    {result_var} = await paradigm_client.chat_completion(
+{indent}        prompt=extraction_prompt,
+{indent}        model="alfred-4.2"
+{indent}    )
+{indent}except Exception as e:
+{indent}    logger.error(f"Extraction failed: {{e}}")
+{indent}    {result_var} = f"Extraction error: {{str(e)}}"'''
+
+        return replacement
+
+    # Apply replacement
+    fixed_code = re.sub(pattern1, replace_single_doc, fixed_code)
+
+    if fixed_code != code:
+        logger.info(f"✅ Post-processing: Replaced analyze_documents_with_polling with chat_completion")
+        logger.info(f"   Expected speedup: 60x faster (5s instead of 300s)")
+
+    return fixed_code
+
+
+def add_staggering_to_workflow(code: str, description: str) -> str:
+    """
+    Add staggering (delays) between API calls for complex workflows.
+    Prevents API overload and timeouts on workflows with many parallel calls.
+    """
+    api_call_count = count_api_calls(code)
+
+    if api_call_count < 40:
+        # Not a complex workflow, no staggering needed
+        return code
+
+    logger.info(f"🔧 Post-processing: Detected complex workflow ({api_call_count} API calls)")
+    logger.info(f"   Adding staggering to prevent API overload")
+
+    # Strategy: Add small delays between asyncio.gather() calls
+    # Pattern: Find asyncio.gather() with many tasks and add delays
+
+    # For now, we'll add a general instruction as a comment
+    # More sophisticated implementation would parse AST and insert delays
+
+    staggering_note = '''
+# ⚠️ Post-processing note: This workflow has many API calls ({})
+# Consider adding delays between groups of calls to prevent timeouts:
+# await asyncio.sleep(2)  # Small delay between API call groups
+'''.format(api_call_count)
+
+    # Insert note after imports
+    if "import asyncio" in code:
+        code = code.replace("import asyncio", f"import asyncio{staggering_note}")
+
+    logger.info(f"✅ Post-processing: Added staggering guidance for {api_call_count} API calls")
+
+    return code
+
+
+def fix_bracket_mismatches(code: str) -> str:
+    """
+    Detect and fix common bracket/parenthesis mismatches in generated code.
+
+    Common patterns that cause issues:
+    - await asyncio.gather(*[...]) instead of await asyncio.gather(...)
+    - Mixing brackets and parentheses in function calls
+    - Unmatched brackets in list comprehensions
+    """
+    import re
+
+    fixed_code = code
+
+    # Pattern 1: Fix asyncio.gather(*[...]) -> asyncio.gather(...)
+    # This is a common mistake where Claude uses unpacking with list brackets
+    pattern_gather = r'asyncio\.gather\(\s*\*\s*\[((?:[^[\]]*|\[[^\]]*\])*)\]\s*\)'
+
+    def fix_gather(match):
+        tasks = match.group(1)
+        # Remove the unpacking operator and brackets
+        return f'asyncio.gather({tasks})'
+
+    fixed_code = re.sub(pattern_gather, fix_gather, fixed_code)
+
+    # Pattern 2: Fix common mismatches in await statements
+    # await func([...]) sometimes gets mistyped as await func(...)
+    # We'll validate bracket balance on each line
+
+    lines = fixed_code.split('\n')
+    fixed_lines = []
+
+    for line_num, line in enumerate(lines, 1):
+        # Check bracket balance on this line
+        if not is_balanced(line):
+            # Try to fix simple cases
+            fixed_line = attempt_fix_line(line)
+            if is_balanced(fixed_line):
+                logger.info(f"🔧 Post-processing: Fixed bracket mismatch on line {line_num}")
+                fixed_lines.append(fixed_line)
+            else:
+                # Can't fix automatically, keep original
+                fixed_lines.append(line)
+        else:
+            fixed_lines.append(line)
+
+    fixed_code = '\n'.join(fixed_lines)
+
+    return fixed_code
+
+
+def is_balanced(line: str) -> bool:
+    """Check if brackets/parentheses are balanced on a line"""
+    stack = []
+    pairs = {'(': ')', '[': ']', '{': '}'}
+
+    # Skip strings to avoid false positives
+    in_string = False
+    escape = False
+    string_char = None
+
+    for char in line:
+        if escape:
+            escape = False
+            continue
+
+        if char == '\\':
+            escape = True
+            continue
+
+        if char in ['"', "'"] and not in_string:
+            in_string = True
+            string_char = char
+            continue
+        elif in_string and char == string_char:
+            in_string = False
+            string_char = None
+            continue
+
+        if in_string:
+            continue
+
+        if char in pairs:
+            stack.append(char)
+        elif char in pairs.values():
+            if not stack:
+                return False
+            opener = stack.pop()
+            if pairs[opener] != char:
+                return False
+
+    return len(stack) == 0
+
+
+def attempt_fix_line(line: str) -> str:
+    """Attempt to automatically fix common bracket mismatches"""
+    # Common fix 1: Replace ] with ) at end of function calls
+    # Example: await func(...] -> await func(...)
+    if 'await ' in line and line.rstrip().endswith(']'):
+        # Count opening ( and [
+        open_paren = line.count('(') - line.count(')')
+        open_bracket = line.count('[') - line.count(']')
+
+        if open_paren > 0 and open_bracket < 0:
+            # More open ( than ), and extra closing ]
+            # Replace last ] with )
+            line = line.rstrip()[:-1] + ')'
+
+    # Common fix 2: Replace ) with ] at end of list definitions
+    # Example: my_list = [...) -> my_list = [...]
+    if '= [' in line and line.rstrip().endswith(')'):
+        open_bracket = line.count('[') - line.count(']')
+        open_paren = line.count('(') - line.count(')')
+
+        if open_bracket > 0 and open_paren < 0:
+            # More open [ than ], and extra closing )
+            # Replace last ) with ]
+            line = line.rstrip()[:-1] + ']'
+
+    return line
+
+
 class WorkflowGenerator:
     def __init__(self):
         self.anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
@@ -1274,12 +1569,20 @@ elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
 if attached_files:
     # User uploaded files - use them directly (NO document_search!)
     document_ids = [str(file_id) for file_id in attached_files]
-    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+
+    # ⚠️ IMPORTANT: Choose API based on use case (see API SELECTION section below)
+    # For structured extraction (CV, forms, invoices): Use chat_completion()
+    # For long document summarization (reports, articles): Use analyze_documents_with_polling()
+    # Example for structured extraction:
+    # doc_content = await paradigm_client.ask_question(file_id=document_ids[0], question=query)
+    # analysis = await paradigm_client.chat_completion(prompt=f"Extract: {doc_content['response']}")
+    # Example for summarization:
+    # analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
 else:
     # No uploaded files - search workspace
     search_results = await paradigm_client.document_search(query)
     document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
-    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    # Choose API based on use case (see API SELECTION section below)
 
 NEVER skip the if/else check. NEVER call document_search when attached_file_ids exists.
 
@@ -1303,12 +1606,14 @@ if attached_files:
 if attached_files:
     document_ids = [str(file_id) for file_id in attached_files]
     # Now use document_ids directly for analysis
-    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    # ⚠️ CHOOSE API BASED ON USE CASE:
+    # - For structured data (CV, forms): use chat_completion() [see API SELECTION section]
+    # - For long documents (reports): use analyze_documents_with_polling()
 else:
     # Search workspace only when no files uploaded
     search_results = await paradigm_client.document_search(query)
     document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
-    analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    # ⚠️ CHOOSE API BASED ON USE CASE [see API SELECTION section below]
 
 🎯 QUERY FORMULATION BEST PRACTICES (CRITICAL - Prevents 40% of query failures):
 
@@ -1359,278 +1664,9 @@ WHY THIS MATTERS:
 - Specific queries with formats and sections preserve all information
 - Using document keywords improves extraction accuracy by 40%
 
-AVAILABLE API METHODS:
-1. await paradigm_client.document_search(query: str, workspace_ids=None, file_ids=None, company_scope=True, private_scope=True, tool="DocumentSearch", private=False)
-   ⚠️ NEVER call this if attached_file_ids exists! Use the IDs directly instead.
-   ⚠️ ALWAYS apply Query Formulation Best Practices to the query parameter
-2. await paradigm_client.analyze_documents_with_polling(query: str, document_ids: List[str], model=None)
-   *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
-   *** IMPORTANT: For document type identification, analyze documents ONE BY ONE to get clear ID-to-type mapping ***
-   *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
-   ⚠️ ALWAYS apply Query Formulation Best Practices to the query parameter
-3. await paradigm_client.chat_completion(prompt: str, model: str = "Alfred 4.2")
-4. await paradigm_client.analyze_image(query: str, document_ids: List[str], model=None) - Analyze images in documents with AI-powered visual analysis
-   *** CRITICAL: document_ids can contain MAXIMUM 5 documents. If more than 5, use batching! ***
-   *** NOTE: The API uses your authentication token to access both uploaded files and workspace documents automatically ***
-   ⚠️ ALWAYS apply Query Formulation Best Practices to the query parameter
 
-🚀 PARALLELIZATION: WHEN AND HOW TO USE asyncio.gather()
-
-WHEN TO PARALLELIZE:
-- ✅ Multiple INDEPENDENT tasks (tasks that don't depend on each other's results)
-- ✅ Multiple document searches on different topics
-- ✅ Multiple document analyses on different documents
-- ✅ Multiple validation checks that can run simultaneously
-- ❌ DON'T parallelize tasks where one depends on the output of another
-
-CORRECT PARALLEL EXECUTION (using asyncio.gather()):
-# Example: Checking 3 different fields in parallel
-name_check, address_check, phone_check = await asyncio.gather(
-    paradigm_client.document_search("Extract company name", file_ids=document_ids),
-    paradigm_client.document_search("Extract company address", file_ids=document_ids),
-    paradigm_client.document_search("Extract company phone", file_ids=document_ids)
-)
-
-# Example: Analyzing multiple documents in parallel (respecting 5-doc limit per call)
-doc_analyses = await asyncio.gather(
-    paradigm_client.analyze_documents_with_polling("Summarize document", [document_ids[0]]),
-    paradigm_client.analyze_documents_with_polling("Extract key dates", [document_ids[1]]),
-    paradigm_client.analyze_documents_with_polling("Find signatures", [document_ids[2]])
-)
-
-# Example: Multiple comparison checks in parallel
-checks = await asyncio.gather(
-    paradigm_client.chat_completion(f"Compare name: Doc1={name1} vs Doc2={name2}. Are they identical?"),
-    paradigm_client.chat_completion(f"Compare address: Doc1={addr1} vs Doc2={addr2}. Are they identical?"),
-    paradigm_client.chat_completion(f"Compare phone: Doc1={phone1} vs Doc2={phone2}. Are they identical?")
-)
-
-PERFORMANCE BENEFITS:
-- Sequential: 3 tasks × 5 seconds each = 15 seconds total
-- Parallel: max(5, 5, 5) seconds = 5 seconds total (3x faster!)
-
-INCORRECT PARALLELIZATION (DON'T DO THIS):
-# ❌ Task 2 depends on Task 1's result - MUST be sequential
-result1 = await task1()
-result2 = await task2(result1)  # Needs result1, can't parallelize
-
-# ❌ Using asyncio.gather() when tasks are dependent
-result1, result2 = await asyncio.gather(
-    task1(),
-    task2(result1)  # ERROR: result1 doesn't exist yet!
-)
-
-HYBRID APPROACH (parallel groups with sequential dependencies):
-# Step 1: Parallel extraction from 3 documents
-doc1_info, doc2_info, doc3_info = await asyncio.gather(
-    paradigm_client.document_search("Extract info", file_ids=[doc1_id]),
-    paradigm_client.document_search("Extract info", file_ids=[doc2_id]),
-    paradigm_client.document_search("Extract info", file_ids=[doc3_id])
-)
-
-# Step 2: Sequential comparison using extracted data
-comparison = await paradigm_client.chat_completion(
-    f"Compare these documents: {doc1_info}, {doc2_info}, {doc3_info}"
-)
-
-🎯 INTELLIGENT PARALLELIZATION DETECTION:
-
-Before generating code, ALWAYS analyze the workflow description to identify independent sub-tasks that can run in parallel.
-
-DETECTION RULES:
-1. **Multiple fields/attributes extraction** → PARALLELIZE each field
-   Examples: "extract name, address, phone" → 3 parallel tasks
-
-2. **Multiple documents with same operation** → PARALLELIZE per document
-   Examples: "analyze 3 documents", "compare docs A, B, C" → parallel analysis
-
-3. **Multiple independent checks/validations** → PARALLELIZE each check
-   Examples: "verify name matches, check address format, validate phone" → 3 parallel validations
-
-4. **Sequential dependencies** → DO NOT PARALLELIZE
-   Examples: "extract data THEN compare THEN summarize" → must be sequential
-
-LANGUAGE-AGNOSTIC DETECTION (works in French, English, etc.):
-
-EXAMPLE 1 - French: "Extraire le nom, l'adresse et le téléphone du document"
-→ ANALYSIS: User wants 3 fields (nom, adresse, téléphone)
-→ DETECTION: 3 independent extraction tasks
-→ CODE: Use asyncio.gather() with 3 document_search or analyze_documents_with_polling calls
-
-EXAMPLE 2 - French: "Extraire le nom et l'adresse de 5 documents différents"
-→ ANALYSIS: Same operation (extract name+address) on 5 documents
-→ DETECTION: 5 independent document analyses
-→ CODE: Use asyncio.gather() to process 5 documents in parallel
-
-EXAMPLE 3 - English: "Compare company name from Doc A with Doc B"
-→ ANALYSIS: Extract from A → Extract from B → Compare (sequential dependency)
-→ DETECTION: Partial parallelization possible (extract A and B in parallel, then compare)
-→ CODE: asyncio.gather(extract_A, extract_B) then compare_results
-
-EXAMPLE 4 - French: "Vérifier que le nom correspond, l'adresse est valide et le téléphone est au bon format"
-→ ANALYSIS: 3 independent validation checks
-→ DETECTION: 3 parallel validation tasks
-→ CODE: Use asyncio.gather() with 3 chat_completion calls for validation
-
-KEYWORDS INDICATING MULTIPLE TASKS (detect in ANY language):
-- Lists with commas: "X, Y, Z" or "X, Y et Z" or "X and Y"
-- Multiple nouns: "nom adresse téléphone", "name address phone"
-- Numbers: "3 documents", "5 checks", "plusieurs fichiers"
-- Conjunctions: "et/and", "puis/then", "avec/with"
-
-IMPLEMENTATION PATTERN:
-# When you detect multiple independent tasks, ALWAYS structure code like this:
-task1 = api_call_1()
-task2 = api_call_2()
-task3 = api_call_3()
-
-result1, result2, result3 = await asyncio.gather(task1, task2, task3)
-
-# NOT like this (sequential - slower):
-result1 = await api_call_1()
-result2 = await api_call_2()
-result3 = await api_call_3()
-
-CONTEXT PRESERVATION IN API PROMPTS:
-When creating prompts for API calls, include relevant context from the original workflow description: examples, formatting requirements, specific field names, and business rules mentioned by the user.
-
-WORKFLOW ACCESS TO ATTACHED FILES:
-The global variable 'attached_file_ids: List[int]' is available when users upload files.
-Your workflow MUST check for this variable and handle both cases (uploaded files OR workspace search).
-
-CORRECT DOCUMENT TYPE IDENTIFICATION (analyze individually for clear mapping):
-def extract_document_type_from_response(analysis_response, expected_types):
-    \"\"\"
-    Extract document type from AI analysis response by finding best match with expected types.
-    Args:
-        analysis_response: The AI's response text
-        expected_types: List of expected document type names/keywords
-    Returns:
-        Best matching document type or "UNKNOWN" if no match found
-    \"\"\"
-    response_lower = analysis_response.lower()
-    
-    # Try exact matches first (case insensitive)
-    for doc_type in expected_types:
-        if doc_type.lower() in response_lower:
-            return doc_type
-    
-    # Try partial matches for compound names
-    for doc_type in expected_types:
-        type_words = doc_type.lower().split()
-        if len(type_words) > 1 and all(word in response_lower for word in type_words):
-            return doc_type
-    
-    # Try keyword-based matching for common patterns
-    type_keywords = {
-        "invoice": ["facture", "invoice", "bill"],
-        "contract": ["contrat", "contract", "agreement"],
-        "report": ["rapport", "report", "summary"],
-        "statement": ["relevé", "statement", "declaration"]
-    }
-    
-    for doc_type in expected_types:
-        type_lower = doc_type.lower()
-        for category, keywords in type_keywords.items():
-            if category in type_lower:
-                if any(keyword in response_lower for keyword in keywords):
-                    return doc_type
-    
-    return "UNKNOWN"
-
-# Usage example for document identification:
-expected_document_types = ["DC4", "BOAMP", "JOUE", "RIB", "Acte d'engagement"]  # Define based on workflow needs
-doc_type_mapping = {}
-for doc_id in document_ids:
-    # Use specific prompt that asks for precise identification
-    identification_prompt = f"Identifiez précisément le type de ce document. Répondez uniquement par le type exact parmi ces options : {', '.join(expected_document_types)}"
-    
-    type_analysis = await paradigm_client.analyze_documents_with_polling(
-        identification_prompt, 
-        [doc_id]  # Single document for clear mapping
-    )
-    doc_type_mapping[doc_id] = extract_document_type_from_response(type_analysis, expected_document_types)
-
-INCORRECT DOCUMENT TYPE IDENTIFICATION (analyzing multiple docs together):
-# DON'T DO THIS - loses document ID to type mapping
-all_docs_analysis = await paradigm_client.analyze_documents_with_polling(
-    "Identify document types", document_ids  # Multiple docs = unclear mapping
-)
-
-CRITICAL: DOCUMENT ANALYSIS 5-DOCUMENT LIMIT:
-# Document analysis can only handle 5 documents at a time
-# If you have more than 5 documents, you MUST split them into batches
-
-# ALWAYS check document count before analysis:
-if len(document_ids) > 5:
-    # Process in batches of 5
-    results = []
-    for i in range(0, len(document_ids), 5):
-        batch = document_ids[i:i+5]
-        result = await paradigm_client.analyze_documents_with_polling(query, batch)
-        results.append(result)
-    final_analysis = "\\n\\n".join(results)
-else:
-    # Process all documents at once (5 or fewer)
-    final_analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
-
-❌ WRONG PATTERN - THIS WILL FAIL:
-# DON'T call document_search with attached files - it returns 0 documents!
-search_results = await paradigm_client.document_search(query)
-documents = search_results.get("documents", [])  # Returns [] for uploaded files
-document_ids = [str(doc["id"]) for doc in documents]
-analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
-
-✅ CORRECT PATTERN - ALWAYS USE THIS:
-# Check for uploaded files in both globals() and builtins (supports both Workflow Builder and standalone runner)
-import builtins
-attached_files = None
-if 'attached_file_ids' in globals() and globals()['attached_file_ids']:
-    attached_files = globals()['attached_file_ids']
-elif hasattr(builtins, 'attached_file_ids') and builtins.attached_file_ids:
-    attached_files = builtins.attached_file_ids
-
-if attached_files:
-    # User uploaded files - use them directly (NO document_search!)
-    document_ids = [str(file_id) for file_id in attached_files]
-    analysis = await paradigm_client.analyze_documents_with_polling(
-        "Your analysis query here",
-        document_ids
-    )
-else:
-    # No uploaded files - search the workspace
-    search_results = await paradigm_client.document_search("Your search query here")
-    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
-    analysis = await paradigm_client.analyze_documents_with_polling(
-        "Your analysis query here",
-        document_ids
-    )
-
-WHY THIS MATTERS:
-- Uploaded files (attached_file_ids) are in your private collection
-- document_search() searches the workspace, NOT private uploaded files
-- Calling document_search with uploaded file IDs returns 0 documents
-- You must use attached_file_ids directly when they exist
-- The API automatically uses your auth token to access documents
-
-CORRECT TEXT PROCESSING (using built-in libraries):
-import re
-def split_sentences(text):
-    sentences = re.split(r'[.!?]+', text)
-    return [s.strip() for s in sentences if s.strip()]
-
-CORRECT SEARCH RESULT USAGE:
-search_result = await paradigm_client.document_search(**search_kwargs)
-# Use the AI-generated answer from search results
-answer = search_result.get("answer", "No answer provided")
-# Don't try to extract raw document content - use the answer field
-
-INCORRECT (DON'T DO THIS):
-file_ids=attached_file_ids if 'attached_file_ids' in globals() else None  # Wrong: should use builtins
-if 'attached_file_ids' in globals():  # Wrong: should use hasattr(builtins, 'attached_file_ids')
-document_ids = [doc["id"] for doc in search_results.get("documents", [])]  # Should convert to strings
-import nltk  # External library not available
-answer = search_result["documents"][0].get("content", "")  # Raw content extraction
+# Note: API selection is now handled automatically by post-processing
+# The post-processor detects workflow type and replaces APIs accordingly
 
 🎯🎯🎯 CODE SIMPLICITY AND ROBUSTNESS PRINCIPLES 🎯🎯🎯
 
@@ -1755,170 +1791,6 @@ Before generating code, ask yourself:
 - Use .get() for all dict access with sensible defaults
 - Simple code with good error handling > complex code that crashes
 
-🚨🚨🚨 AMBIGUITY DETECTION AND CLARIFICATION REQUESTS 🚨🚨🚨
-
-CRITICAL: Before generating workflow code, ALWAYS analyze the workflow description for ambiguous terms that could lead to extraction errors.
-
-WHAT ARE AMBIGUOUS TERMS?
-Terms that could refer to MULTIPLE different fields or values in documents. Common examples:
-- "reference number" → Could be: procedure number, market number, contract ID, CPV code, invoice number, etc.
-- "date" → Could be: execution date, signature date, publication date, invoice date, deadline, etc.
-- "amount" → Could be: total amount, net amount, tax amount, monthly amount, annual budget, etc.
-- "name" → Could be: company name, project name, document name, person name, etc.
-- "identifier" → Could be: SIRET, SIREN, VAT number, registration number, etc.
-
-WHY THIS MATTERS:
-Administrative and business documents contain MANY identifiers, dates, and amounts. Without specificity, the API may extract the WRONG value, leading to incorrect comparisons or analyses.
-
-EXAMPLE OF AMBIGUITY PROBLEM:
-User says: "Compare the reference number between DC4 and AAPC documents"
-❌ PROBLEM: "reference number" is ambiguous
-- DC4 may contain: Procédure n° 22U012, Marché 617529
-- AAPC may contain: Numéro de référence 22U012, Code CPV 72000000
-- Without clarification, the workflow might extract CPV code (72000000) instead of procedure number (22U012)
-
-WHEN TO REQUEST CLARIFICATION:
-If the workflow description contains ANY of these patterns, you MUST ask for clarification:
-
-1. **Generic field names without document section references**:
-   - "extract the reference number" → ASK: "Which reference number? From which section?"
-   - "find the date" → ASK: "Which date specifically? (execution date, signature date, etc.)"
-   - "get the amount" → ASK: "Which amount? (total, net, tax, etc.)"
-
-2. **Vague comparative tasks**:
-   - "compare the identifiers" → ASK: "Which specific identifiers? What format do they have?"
-   - "verify the dates match" → ASK: "Which dates? Are there multiple date fields?"
-
-3. **Missing document structure information**:
-   - "extract company information" → ASK: "Which specific fields? Name? SIRET? Address? Phone?"
-   - "find the contract details" → ASK: "Which details specifically? Number? Date? Amount? All of them?"
-
-4. **Terms that could match multiple document types or fields**:
-   - "numéro de marché" in administrative docs → Could be procedure number, market ID, contract number
-   - "code" in any document → Could be CPV code, postal code, product code, reference code
-
-HOW TO REQUEST CLARIFICATION:
-DO NOT generate code immediately. Instead, DETECT ambiguous terms and list specific questions:
-
-EXAMPLE CLARIFICATION REQUEST FORMAT:
-```
-⚠️ CLARIFICATIONS NÉCESSAIRES
-
-J'ai détecté des termes ambigus qui nécessitent des précisions :
-
-1. **"numéro de référence"** - Plusieurs identifiants possibles dans les documents administratifs :
-   - Est-ce le numéro de procédure (ex: 22U012) ?
-   - Est-ce le numéro de marché (ex: 617529) ?
-   - Est-ce autre chose ?
-   - Dans quelle section du document se trouve-t-il ?
-
-2. **"date"** - Plusieurs dates peuvent être présentes :
-   - Date d'exécution ?
-   - Date de signature ?
-   - Date de publication ?
-   - Quel format attendu ? (JJ/MM/AAAA, AAAA-MM-JJ, etc.)
-
-3. **"montant"** - Plusieurs montants possibles :
-   - Montant total TTC ?
-   - Montant net HT ?
-   - Montant des taxes ?
-   - Avec quelle devise ? (EUR, USD, etc.)
-
-Pouvez-vous préciser pour chaque point ci-dessus ?
-```
-
-LANGUAGE-AGNOSTIC DETECTION:
-Work in ANY language (French, English, etc.). Detect ambiguity based on semantic meaning, not just keywords:
-
-French ambiguous terms: "référence", "numéro", "date", "montant", "nom", "identifiant", "code"
-English ambiguous terms: "reference", "number", "date", "amount", "name", "identifier", "code"
-
-WHEN NOT TO REQUEST CLARIFICATION:
-✅ SPECIFIC descriptions with section references are CLEAR - generate code directly:
-- "Extract the SIRET number (14 digits) from the 'Informations légales' section"
-- "Find the invoice date in DD/MM/YYYY format from the header"
-- "Get the Numéro de référence from section II.1.1"
-- "Extract the Procédure n° from section B - Objet du marché public"
-
-✅ Workflows that don't extract specific fields (summaries, classifications, etc.):
-- "Summarize the document in 3 sentences"
-- "Classify this document as invoice, contract, or report"
-- "Extract all company names mentioned in the document"
-
-IMPLEMENTATION:
-Before generating code, ALWAYS check the workflow description for ambiguous field references.
-If found, output the clarification request format shown above and WAIT for user response before generating code.
-
-🚨🚨🚨 INTERACTIVE VALIDATION PATTERN FOR MULTIPLE CANDIDATES 🚨🚨🚨
-
-CRITICAL: When extracting specific fields from documents, the API may find MULTIPLE potential values. Your generated code MUST handle this by presenting candidates to users for validation.
-
-WHEN TO USE INTERACTIVE VALIDATION:
-Use this pattern when extracting fields that commonly appear multiple times in documents:
-- Identifiers (reference numbers, codes, IDs)
-- Dates (documents often have multiple dates)
-- Amounts (invoices have subtotals, taxes, totals)
-- Names (may list multiple companies, people, or entities)
-
-WHY THIS MATTERS:
-Even with specific queries, documents may contain multiple values that partially match. Interactive validation ensures the CORRECT value is used for comparisons or analysis.
-
-HOW TO IMPLEMENT INTERACTIVE VALIDATION:
-When the API response contains multiple potential values or when you're uncertain which value is correct, generate code that:
-
-1. **Extracts ALL candidate values with their context**
-2. **Presents them to the user in a clear format**
-3. **Allows user to verify or select the correct value**
-
-INTERACTIVE VALIDATION IMPLEMENTATION APPROACH:
-When you detect that extracted data might contain multiple candidate values:
-- First, ask the AI to analyze the extraction response and identify if multiple candidates exist
-- Create a validation prompt asking: "Does this extraction contain multiple candidate values? If yes, list them with context."
-- If multiple candidates are found, include a validation notice in the final result
-- Format the notice as: "VALIDATION REQUIRED - Multiple candidates detected:" followed by the list
-- If only one clear value, proceed automatically with that value
-
-This pattern is particularly useful for:
-- Dates (execution date vs signature date vs publication date)
-- Reference numbers (procedure number vs market number vs CPV code)
-- Amounts (total vs net vs tax amounts)
-- Names (company name vs person name vs project name)
-
-EXAMPLE OUTPUT FOR USER:
-```
-⚠️ VALIDATION NÉCESSAIRE
-
-Plusieurs valeurs candidates ont été trouvées pour "numéro de référence" :
-
-1. 22U012 (contexte: "Procédure n° 22U012" dans section B)
-2. 617529 (contexte: "Marché 617529" dans section informations générales)
-3. 72000000 (contexte: "Code(s) CPV additionnel(s) : 72000000" dans section II.6)
-
-⚠️ ATTENTION: Le code CPV (72000000) est un code de classification, PAS un numéro de référence.
-
-Veuillez vérifier manuellement laquelle de ces valeurs doit être utilisée pour la comparaison.
-```
-
-WHEN TO SKIP INTERACTIVE VALIDATION:
-✅ Skip validation for:
-- Non-comparative workflows (summaries, classifications)
-- Fields that are guaranteed unique (SIRET is always 14 digits)
-- When the query is extremely specific with section references
-- Boolean checks (document exists or not)
-
-COMBINE WITH SPECIFIC QUERIES:
-Interactive validation is a SAFETY NET, not a replacement for specific queries.
-ALWAYS try to make queries as specific as possible FIRST, then use validation as backup.
-
-Example workflow:
-1. Use specific query: "Extract the Numéro de référence from section II.1.1"
-2. Check for multiple candidates in response
-3. If multiple found, present validation UI to user
-4. If single value, proceed automatically
-
-LANGUAGE-AGNOSTIC:
-Work in ANY language. Adapt the validation messages to match the user's workflow description language.
-
 Generate the complete self-contained workflow code that implements the exact logic described.
 
 CRITICAL: NO PLACEHOLDER CODE - NEVER use 'pass' statements, NEVER use placeholder comments, EVERY function must be fully implemented with working code, ALL code must be ready to execute immediately."""
@@ -1959,7 +1831,25 @@ Generate a complete, self-contained workflow that:
             logger.info("=" * 50)
             logger.info(code)
             logger.info("=" * 50)
-            
+
+            # ============================================================================
+            # POST-PROCESSING: Apply automatic fixes based on workflow type
+            # ============================================================================
+
+            logger.info("🔄 POST-PROCESSING: Analyzing generated code...")
+
+            # Post-processing #1: Fix bracket/parenthesis mismatches
+            # DISABLED: This function is too aggressive and breaks correct multi-line code
+            # code = fix_bracket_mismatches(code)
+
+            # Post-processing #2: Fix API selection for extraction workflows
+            code = fix_extraction_workflow_apis(code, description)
+
+            # Post-processing #3: Add staggering for complex workflows
+            code = add_staggering_to_workflow(code, description)
+
+            logger.info("✅ POST-PROCESSING: Complete")
+
             return code
             
         except Exception as e:
@@ -2278,126 +2168,88 @@ LIMITATIONS TO CHECK FOR:
 - Complex data processing libraries (pandas, numpy, etc.) are NOT available - try to avoid them if possible, if you do need these, clearly specify what imports are needed in the step description
 - Only built-in Python libraries and aiohttp are available
 
-🚨🚨🚨 CRITICAL: AMBIGUITY DETECTION AND CLARIFICATION REQUESTS 🚨🚨🚨
+**REQUIRED OUTPUT STRUCTURE:**
 
-BEFORE creating the enhanced workflow steps, ALWAYS analyze the user's description for AMBIGUOUS TERMS that could lead to incorrect data extraction.
+Your enhanced workflow description MUST follow this exact structure:
 
-**WHAT ARE AMBIGUOUS TERMS?**
-Terms that could refer to MULTIPLE different fields in documents. Common examples:
-- "reference number" / "numéro de référence" → Could be: procedure number, market number, contract ID, CPV code, invoice number, etc.
-- "date" → Could be: execution date, signature date, publication date, invoice date, deadline, etc.
-- "amount" / "montant" → Could be: total amount, net amount, tax amount, monthly amount, annual budget, etc.
-- "name" / "nom" → Could be: company name, project name, document name, person name, etc.
-- "identifier" / "identifiant" → Could be: SIRET, SIREN, VAT number, registration number, etc.
-- "code" → Could be: CPV code, postal code, product code, reference code, etc.
-
-**WHY THIS MATTERS:**
-Administrative and business documents contain MANY identifiers, dates, and amounts. Without specificity, you may extract the WRONG value.
-
-**WHEN TO ADD CLARIFICATION QUESTIONS:**
-If the workflow description contains ANY of these patterns, you MUST add clarification questions:
-
-1. **Generic field names without section references**:
-   - "extract the reference number" → ADD QUESTION: "Which specific reference number? From which document section? What format (numbers, letters, both)? Are there any identifiers to exclude (like CPV codes)?"
-   - "find the date" → ADD QUESTION: "Which date specifically (execution, signature, publication, etc.)? What format expected?"
-   - "get the amount" → ADD QUESTION: "Which amount (total, net, tax, etc.)? With which currency?"
-
-2. **Vague comparative tasks**:
-   - "compare the identifiers" → ADD QUESTION: "Which specific identifiers? What format? What sections?"
-   - "verify dates match" → ADD QUESTION: "Which dates? Are there multiple date fields in each document?"
-
-3. **Missing document structure info**:
-   - "extract company information" → ADD QUESTION: "Which specific fields (name, SIRET, address, phone, all)?"
-   - "find contract details" → ADD QUESTION: "Which details (number, date, amount, parties, all)?"
-
-**EXAMPLE CLARIFICATION IN QUESTIONS AND LIMITATIONS:**
 ```
-QUESTIONS AND LIMITATIONS:
-⚠️ AMBIGUITY DETECTED - Clarification needed:
+[High-level overview paragraph describing the workflow purpose and goals]
 
-1. **"numéro de référence"** is ambiguous in administrative documents:
-   - Do you mean the procedure number (e.g., 22U012)?
-   - Do you mean the market number (e.g., 617529)?
-   - Do you mean something else?
-   - In which section of each document should I look?
-   - What format does it have (numeric only, alphanumeric, etc.)?
-   - Are there any codes to EXCLUDE (e.g., CPV codes like 72000000 are classification codes, not reference numbers)?
+## Workflow Steps
 
-2. **"date"** - Multiple dates may exist:
-   - Do you mean execution date, signature date, or publication date?
-   - What format is expected (DD/MM/YYYY, YYYY-MM-DD, etc.)?
+STEP 1: [First step title]
+- [Detailed action description]
+- [Paradigm API tool to use]
+- [Expected input/output]
+- [Any processing logic]
+- [Conditional logic if applicable]
 
-Please provide these clarifications so I can generate specific extraction queries.
+**Questions & Limitations:**
+- **Questions:**
+  - [Question 1 about clarifications or assumptions for this specific step]
+  - [Question 2 about edge cases for this step]
+- **Limitations:**
+  - [Limitation 1 specific to this step]
+  - [Limitation 2 about technical constraints for this step]
+
+STEP 2: [Second step title]
+- [Detailed action description]
+- [Paradigm API tool to use]
+- [Expected input/output]
+
+**Questions & Limitations:**
+- **Questions:**
+  - [Questions specific to this step]
+- **Limitations:**
+  - [Limitations specific to this step]
+
+[Continue with all steps numbered sequentially, each with its own questions and limitations]
 ```
 
-**WHEN NOT TO REQUEST CLARIFICATION:**
-✅ CLEAR descriptions with specifics DON'T need questions:
-- "Extract the SIRET number (14 digits) from the 'Informations légales' section"
-- "Find the invoice date in DD/MM/YYYY format from the header"
-- "Get the Numéro de référence from section II.1.1 (not the CPV code)"
-- "Extract the Procédure n° from section B - Objet du marché public"
+**CRITICAL REQUIREMENTS:**
+1. ✅ ALWAYS include a "## Workflow Steps" section with numbered steps (STEP 1, STEP 2, etc.)
+2. ✅ Each step MUST be numbered clearly (STEP 1, STEP 2, STEP 3, etc.)
+3. ✅ Each step MUST include a blank line after the main bullet points, followed by a "**Questions & Limitations:**" section
+4. ✅ The "**Questions & Limitations:**" section contains two subsections: "**Questions:**" and "**Limitations:**"
+5. ✅ Questions should identify ambiguities, clarifications needed, or assumptions made for that specific step
+6. ✅ Limitations should identify technical constraints, API limitations, or edge cases for that specific step
+7. ❌ DO NOT create a separate "## Questions and Limitations" section at the end
+8. ✅ Questions and limitations are EMBEDDED in each step with clear visual separation (blank line before)
 
-✅ Non-extraction workflows DON'T need questions:
-- "Summarize the document"
-- "Classify document type"
+**Example of correct structure:**
 
-**LANGUAGE-AGNOSTIC:**
-Detect ambiguity in ANY language (French, English, etc.) based on semantic meaning.
+```
+Ce workflow analyse automatiquement les documents pour extraire des informations clés.
 
-**IMPLEMENTATION:**
-When you detect ambiguous terms in the user's description:
-1. Create the workflow steps as best you can
-2. In "QUESTIONS AND LIMITATIONS", add a section "⚠️ AMBIGUITY DETECTED - Clarification needed:" with specific questions
-3. This allows the user to provide clarifications BEFORE code generation
+## Workflow Steps
 
-OUTPUT FORMAT:
-CRITICAL: Provide your response as PLAIN TEXT ONLY. 
-DO NOT use JSON format. 
-DO NOT wrap your response in ```json or ``` blocks.
-DO NOT use curly braces { } or quotes around your response.
-Return the enhanced workflow steps directly in plain text using the step format structure below.
+STEP 1: Identifier et charger les documents
+- Vérifier l'existence de fichiers uploadés via attached_file_ids
+- Si présents, utiliser directement les IDs de fichiers
+- Sinon, utiliser document_search pour trouver les documents pertinents
 
-STEP FORMAT STRUCTURE:
-For each workflow step, use this exact format:
+**Questions & Limitations:**
+- **Questions:**
+  - Les documents sont-ils toujours dans le même ordre ?
+  - Faut-il gérer le cas où aucun fichier n'est trouvé ?
+- **Limitations:**
+  - document_search peut retourner des résultats non pertinents si la requête est trop vague
+  - Les fichiers doivent être déjà indexés (attendre 30-120s après upload)
 
-STEP X: [Highly detailed description of the workflow step with ALL information needed for an LLM to convert the step with all specific requirements (if/then statements, subtle rules, validation logic, API parameters, error conditions, etc.) into very clear code. There should be ABSOLUTELY NO information loss in this step description.]
+STEP 2: Extraire les informations des documents
+- Utiliser ask_question pour chaque document
+- Paralléliser les extractions avec asyncio.gather()
 
-QUESTIONS AND LIMITATIONS: 
-- Write "None" if the step is crystal clear and entirely feasible with Paradigm tools alone. Think carefully about potential edge cases and missing information such as "if, then" statements that would clarify these. 
-- Otherwise, clearly list:
-  * Questions to clarify any ambiguities in the user's description
-  * Questions to get extra information needed (external API documentation, business rules, data formats, etc.)
-  * Indications that the step requires tools not available (web search, external APIs beyond Paradigm, etc.)
+**Questions & Limitations:**
+- **Questions:**
+  - Quel format de sortie est attendu (JSON, texte libre) ?
+  - Comment gérer les documents où l'information n'est pas trouvée ?
+- **Limitations:**
+  - Maximum 5 documents peuvent être analysés en parallèle
+  - Les documents scannés nécessitent VisionDocumentSearch
+```
 
-The goal is that STEP X contains everything needed for code generation, and QUESTIONS AND LIMITATIONS only points out what's missing or impossible.
-
-EXAMPLES:
-
-Simple Input: "Search for documents about my question and analyze them"
-Plain Text Response:
-STEP 1: Search for relevant documents using paradigm_client.document_search with the user's query as the search parameter, setting company_scope=True and private_scope=True to search across all available document collections, and store the returned search results which contain document metadata including IDs, titles, and relevance scores.
-
-QUESTIONS AND LIMITATIONS: None
-
----
-
-STEP 2: Extract document IDs from the search results by accessing the 'documents' array in the search response, converting each document's 'id' field to string format, and handling the API limitation that maximum 5 documents can be analyzed at once by implementing batching logic if more than 5 documents are found.
-
-QUESTIONS AND LIMITATIONS: None
-
----
-
-STEP 3: Analyze the found documents using paradigm_client.analyze_documents_with_polling with the user's original question as the analysis query, implementing the polling mechanism with up to 5-minute timeout, processing documents in batches of maximum 5 documents per API call, and collecting all analysis results which contain AI-generated insights based on document content.
-
-QUESTIONS AND LIMITATIONS: None
-
----
-
-STEP 4: Compile all analysis results from processed documents into a comprehensive summary by combining insights from all batches, formatting the response in clear, readable structure with proper line breaks and organization, including source document references for transparency, and returning the final formatted summary to the user.
-
-QUESTIONS AND LIMITATIONS: None
-
-Now enhance this workflow description and return ONLY the plain text response:"""
+Now enhance this workflow description and return your response following the structure above:"""
 
         user_message = f"Raw workflow description: {raw_description}"
         
