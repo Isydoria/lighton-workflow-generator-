@@ -301,15 +301,17 @@ class ParadigmClient:
     - __init__
     - _get_session
     - close
-    - document_search
-    - analyze_documents_with_polling
+    - document_search  <-- CRITICAL: Primary API for document queries with file_ids!
+    - analyze_documents_with_polling  <-- CRITICAL: For comprehensive structured extraction!
     - document_analysis_start
     - document_analysis_get_result
     - chat_completion
     - upload_file  <-- CRITICAL: Always include this method!
     - get_file  <-- CRITICAL: Required for checking file status!
     - wait_for_embedding  <-- CRITICAL: Required for waiting until files are ready!
-    - ask_question  <-- CRITICAL: Required for extracting data from uploaded files!
+
+    ⚠️ NOTE: ask_question() is NOT included due to server-side issues (HTTP 500).
+    Use document_search(file_ids=[...]) or analyze_documents_with_polling() instead.
     '''
 
     def __init__(self, api_key: str, base_url: str = "https://paradigm.lighton.ai"):
@@ -1476,27 +1478,36 @@ if attached_files:
         logger.info("✅ Proceeding after fallback wait...")
 
     # 🚨 STEP 2: QUERY THE FILE WITH APPROPRIATE API
-    # FOR EXTRACTION (CV, forms, invoices, structured data):
-    # Use ask_question() with fallback to document_search()
+    # CHOOSE based on your workflow type:
+
+    # OPTION A: STRUCTURED EXTRACTION (CV, forms, invoices) - Use analyze_documents_with_polling()
+    # This provides comprehensive structured extraction in ~20-30 seconds
     try:
-        result = await paradigm_client.ask_question(
-            file_id=file_id,
-            question="Your extraction query here"  # ADAPT THIS QUERY TO YOUR WORKFLOW
+        logger.info("📊 Starting document analysis for comprehensive extraction...")
+        document_ids = [str(file_id)]
+        extracted_data = await paradigm_client.analyze_documents_with_polling(
+            query="Your extraction query here - be specific about what fields to extract",  # ADAPT THIS QUERY
+            document_ids=document_ids,
+            max_wait_time=120,  # Wait up to 2 minutes for extraction
+            poll_interval=3      # Check status every 3 seconds
         )
-        extracted_data = result['response']  # ask_question returns 'response'
-    except Exception as ask_err:
-        # Fallback: Use document_search if ask_question is unavailable
-        logger.warning(f"⚠️ ask_question failed ({ask_err}), falling back to document_search")
+        logger.info("✅ Extraction completed!")
+    except Exception as analysis_err:
+        # Fallback: Use document_search for faster (but less complete) extraction
+        logger.warning("⚠️ analyze_documents_with_polling failed, falling back to document_search")
         result = await paradigm_client.document_search(
             query="Your extraction query here",  # ADAPT THIS QUERY TO YOUR WORKFLOW
             file_ids=[file_id]
         )
         extracted_data = result['answer']  # document_search returns 'answer'
 
-    # FOR SUMMARIZATION (long reports, multi-page documents):
-    # Use analyze_documents_with_polling() for comprehensive analysis (2-5 minutes)
-    # document_ids = [str(file_id) for file_id in attached_files]
-    # analysis = await paradigm_client.analyze_documents_with_polling(query, document_ids)
+    # OPTION B: SIMPLE QUICK QUERY - Use document_search() directly (faster: ~2-5s)
+    # Uncomment this if you need just one specific field quickly:
+    # result = await paradigm_client.document_search(
+    #     query="Your specific question here",
+    #     file_ids=[file_id]
+    # )
+    # extracted_data = result['answer']
 
 else:
     # No uploaded files - search workspace with document_search()
@@ -1510,78 +1521,106 @@ else:
 CRITICAL RULES:
 1. ALWAYS wait for file embedding BEFORE querying (wait_for_embedding or asyncio.sleep)
 2. NEVER skip the if/else check for attached_files
-3. NEVER call document_search() when attached_file_ids exists (use ask_question instead)
-4. ALWAYS include fallback from ask_question() to document_search() for robustness
+3. ALWAYS include fallback strategy for robustness
+4. Choose API based on workflow requirements (see selection rules below)
 
 ⚠️ CRITICAL API SELECTION RULES FOR UPLOADED FILES:
 
 When user uploads files (attached_files exists), YOU MUST CHOOSE the right API:
 
-1️⃣ Use ask_question() when:
-   ✅ Extracting structured data (CV, forms, invoices, tables)
-   ✅ Simple question about ONE document ("What is the total?")
+1️⃣ Use analyze_documents_with_polling() when:
+   ✅ Extracting COMPLETE structured data (CV, comprehensive forms)
+   ✅ Need ALL fields extracted automatically (skills, experience, education, etc.)
+   ✅ Complex analysis across documents
+   ✅ Can wait 20-30 seconds for comprehensive result
+   ✅ Want structured Markdown output with all sections
+   ⏱️ Performance: ~20-30 seconds, comprehensive results
+
+2️⃣ Use document_search(file_ids=[...]) when:
+   ✅ Simple quick question about ONE specific field ("What is the name?")
    ✅ Fast response needed (2-5 seconds)
-   ✅ Loop through multiple documents individually
+   ✅ Single piece of information extraction
+   ✅ Loop through multiple documents individually with specific queries
+   ⏱️ Performance: ~2-5 seconds, targeted results
 
-2️⃣ Use analyze_documents_with_polling() when:
-   ✅ Summarizing long documents (>5 pages)
-   ✅ Complex analysis across MULTIPLE documents
-   ✅ Need comprehensive report (research, synthesis)
-   ✅ Can wait 2-5 minutes for result
-
-3️⃣ NEVER use document_search() when:
-   ❌ attached_files exists (files already identified!)
-   ❌ You have specific file_ids to work with
-
-   Exception: Only use document_search() when attached_files is None/empty
-   (user wants to search workspace, not use uploaded files)
+3️⃣ Use document_search() WITHOUT file_ids when:
+   ✅ attached_files is None/empty (user wants to search workspace)
+   ✅ No specific files uploaded
+   ✅ Searching across entire workspace/company documents
 
 ❌ WRONG PATTERNS - DO NOT GENERATE THIS CODE:
 
-# ❌ WRONG: Using document_search with uploaded files
+# ❌ WRONG: Using ask_question() - This API has server-side issues (HTTP 500)
 if attached_files:
-    search_results = await paradigm_client.document_search("keyword", file_ids=attached_files)  # WRONG!
-    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
+    result = await paradigm_client.ask_question(
+        file_id=int(attached_files[0]),
+        question="Extract name"
+    )  # WRONG - ask_question() currently returns HTTP 500 errors
 
 # ❌ WRONG: Skipping the if/else check entirely
 document_ids = [str(file_id) for file_id in attached_file_ids]  # WRONG - assumes files always exist!
 
-# ❌ WRONG: Using analyze_documents_with_polling for simple CV extraction
+# ❌ WRONG: Not waiting for embedding before querying
 if attached_files:
-    result = await paradigm_client.analyze_documents_with_polling(
-        "Extract skills from CV", [str(attached_files[0])]
-    )  # WRONG - will timeout after 5 minutes! Use ask_question instead!
+    file_id = int(attached_files[0])
+    result = await paradigm_client.document_search(query, file_ids=[file_id])  # WRONG - file not ready!
+
+# ❌ WRONG: Using document_search() to search workspace when files are uploaded
+if attached_files:
+    search_results = await paradigm_client.document_search("keyword")  # WRONG - ignores uploaded files!
+    document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
 
 ✅ CORRECT PATTERNS - ALWAYS GENERATE THIS CODE:
 
-# ✅ CORRECT Example 1: CV extraction (use ask_question)
+# ✅ CORRECT Example 1: CV comprehensive extraction (use analyze_documents_with_polling)
 if attached_files:
-    # CRITICAL: Wait for indexing first!
-    logger.info("⏳ Waiting 60 seconds for file indexing...")
-    await asyncio.sleep(60)
-    logger.info("✅ Proceeding with extraction...")
-
+    # CRITICAL: Wait for embedding first with wait_for_embedding()!
     file_id = int(attached_files[0])
-    skills_result = await paradigm_client.ask_question(
+    file_info = await paradigm_client.wait_for_embedding(
         file_id=file_id,
-        question="Extract all technical skills mentioned in this CV"
+        max_wait_time=300,
+        poll_interval=2
     )
-    skills = skills_result['response']  # Fast: 2-5 seconds
+    logger.info(f"✅ File ready! Proceeding with comprehensive extraction...")
+
+    document_ids = [str(file_id)]
+    cv_data = await paradigm_client.analyze_documents_with_polling(
+        query="Extract all information from this CV: full name, skills, professional experience, education",
+        document_ids=document_ids,
+        max_wait_time=120,
+        poll_interval=3
+    )  # Comprehensive extraction: ~20-30 seconds, returns structured Markdown
 else:
-    search_results = await paradigm_client.document_search("Find CVs")
+    search_results = await paradigm_client.document_search("Find CVs in workspace")
     document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
 
-# ✅ CORRECT Example 2: Long document summarization (use analyze_documents_with_polling)
+# ✅ CORRECT Example 2: Quick single-field extraction (use document_search with file_ids)
 if attached_files:
-    # CRITICAL: Wait for indexing first!
-    logger.info("⏳ Waiting 60 seconds for file indexing...")
-    await asyncio.sleep(60)
-    logger.info("✅ Proceeding with analysis...")
+    # CRITICAL: Wait for embedding first!
+    file_id = int(attached_files[0])
+    file_info = await paradigm_client.wait_for_embedding(file_id=file_id)
+
+    result = await paradigm_client.document_search(
+        query="What is the full name?",
+        file_ids=[file_id]
+    )
+    name = result['answer']  # Fast: ~2-5 seconds, returns direct answer
+else:
+    search_results = await paradigm_client.document_search("Find name in documents")
+
+# ✅ CORRECT Example 3: Long document summarization (use analyze_documents_with_polling)
+if attached_files:
+    # CRITICAL: Wait for embedding first!
+    file_id = int(attached_files[0])
+    file_info = await paradigm_client.wait_for_embedding(file_id=file_id)
 
     document_ids = [str(file_id) for file_id in attached_files]
     summary = await paradigm_client.analyze_documents_with_polling(
-        "Provide comprehensive summary of this research report", document_ids
-    )  # Comprehensive: 2-5 minutes
+        query="Provide comprehensive summary of this research report",
+        document_ids=document_ids,
+        max_wait_time=300,
+        poll_interval=5
+    )  # Comprehensive: 2-5 minutes for long documents
 else:
     search_results = await paradigm_client.document_search("Find reports")
     document_ids = [str(doc["id"]) for doc in search_results.get("documents", [])]
@@ -2304,21 +2343,26 @@ AVAILABLE PARADIGM API TOOLS AND WHEN TO USE THEM:
 
 📁 FOR WORKFLOWS WITH UPLOADED FILES (user provides documents):
 
-1. Ask Question (paradigm_client.ask_question) ⭐ PREFERRED FOR EXTRACTION
-   - USE FOR: Extracting structured data (CV, forms, invoices, tables)
-   - USE FOR: Simple questions about ONE specific document
-   - Performance: Fast (2-5 seconds)
-   - Returns: AI answer + relevant chunks
-   - Example: Extract skills from CV, get total from invoice, find dates in contract
-   - ✅ USE THIS when workflow description mentions: "extract", "parse", "CV", "form", "invoice"
-
-2. Document Analysis (paradigm_client.analyze_documents_with_polling) ⭐ ONLY FOR LONG DOCUMENTS
+1. Document Analysis (paradigm_client.analyze_documents_with_polling) ⭐ PREFERRED FOR COMPREHENSIVE EXTRACTION
+   - USE FOR: Extracting COMPLETE structured data (CV, comprehensive forms)
+   - USE FOR: Need ALL fields extracted automatically (skills, experience, education, etc.)
    - USE FOR: Summarizing long documents (>5 pages)
-   - USE FOR: Comprehensive analysis across MULTIPLE documents
-   - Performance: Slow (2-5 minutes)
-   - Returns: Comprehensive AI analysis
-   - Example: Summarize research report, analyze legal contracts, synthesize multiple documents
-   - ⚠️ AVOID for simple extraction - causes timeouts!
+   - USE FOR: Complex analysis across MULTIPLE documents
+   - Performance: ~20-30 seconds for extraction, 2-5 minutes for long document analysis
+   - Returns: Comprehensive structured AI analysis in Markdown format
+   - Example: Extract all CV information, analyze complete forms, synthesize multiple documents
+   - ✅ USE THIS when workflow description mentions: "CV", "analyse", "extract all", "comprehensive"
+
+2. Document Search (paradigm_client.document_search with file_ids) ⭐ FOR QUICK SINGLE FIELD
+   - USE FOR: Extracting ONE specific field quickly ("What is the name?")
+   - USE FOR: Simple questions about ONE specific value
+   - Performance: Fast (2-5 seconds)
+   - Returns: Direct AI answer
+   - Example: Get name from document, find total in invoice, extract one specific date
+   - ✅ USE THIS when workflow description mentions: "find", "get", "what is", single field extraction
+
+⚠️ NOTE: ask_question() API is currently unavailable due to server-side issues.
+Use analyze_documents_with_polling() or document_search(file_ids=[...]) instead.
 
 🔍 FOR WORKFLOWS WITHOUT UPLOADED FILES (search workspace):
 
@@ -2347,13 +2391,16 @@ Instead, describe the OPERATION type (extract, summarize, search, etc.)
 Let the code generator choose the appropriate API based on the main prompt instructions.
 
 ✅ CORRECT Enhancement Examples:
-- "Extract skills from CV" (code generator will choose ask_question)
+- "Extract all information from CV" (code generator will choose analyze_documents_with_polling for comprehensive extraction)
+- "Get candidate name quickly" (code generator will choose document_search with file_ids for single field)
 - "Summarize research report" (code generator will choose analyze_documents_with_polling)
-- "Search for invoices" (code generator will choose document_search)
+- "Search for invoices in workspace" (code generator will choose document_search without file_ids)
 
 ❌ WRONG Enhancement Examples:
-- "Extract skills using paradigm_client.analyze_documents_with_polling" ← TOO SPECIFIC!
-- "Use document_search to extract from file" ← WRONG API CHOICE!
+- "Extract skills using paradigm_client.ask_question" ← WRONG API (has server issues)!
+- "Use ask_question to extract from file" ← WRONG API (HTTP 500 errors)!
+- "Extract skills using paradigm_client.analyze_documents_with_polling" ← TOO SPECIFIC! Just say "Extract skills"
+- "Use document_search to extract from file" ← AMBIGUOUS! Be clear if it's single field or comprehensive
 
 ENHANCEMENT GUIDELINES:
 1. Break down the workflow into clear, specific steps
