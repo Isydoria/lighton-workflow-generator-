@@ -200,6 +200,43 @@ docker-clean: ## Nettoyer les conteneurs et images Docker
 # Utilitaires
 # ═══════════════════════════════════════════════════════════
 
+test-ask-question: ## Tester l'API ask_question de Paradigm
+	@echo "$(YELLOW)Test de l'API ask_question de Paradigm...$(NC)"
+	@if [ -z "$$LIGHTON_API_KEY" ] && [ -z "$$PARADIGM_API_KEY" ]; then \
+		echo "$(RED)✗ LIGHTON_API_KEY ou PARADIGM_API_KEY non définie$(NC)"; \
+		echo "$(YELLOW)  Ajouter dans .env : PARADIGM_API_KEY=your_key$(NC)"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "$(BLUE)Entrez l'ID du fichier à tester (ex: 104039):$(NC) "; \
+	read FILE_ID; \
+	if [ -z "$$FILE_ID" ]; then \
+		echo "$(RED)✗ ID fichier requis$(NC)"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "$(YELLOW)Envoi de la requête à Paradigm...$(NC)"; \
+	API_KEY=$${PARADIGM_API_KEY:-$$LIGHTON_API_KEY}; \
+	RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST \
+		"https://paradigm.lighton.ai/api/v2/files/$$FILE_ID/ask-question" \
+		-H "Authorization: Bearer $$API_KEY" \
+		-H "Content-Type: application/json" \
+		-d '{"question": "Quel est le nom complet ?"}'); \
+	HTTP_CODE=$$(echo "$$RESPONSE" | tail -n1); \
+	BODY=$$(echo "$$RESPONSE" | sed '$$d'); \
+	echo ""; \
+	if [ "$$HTTP_CODE" = "200" ]; then \
+		echo "$(GREEN)✓ Succès (HTTP $$HTTP_CODE)$(NC)"; \
+		echo ""; \
+		echo "$(BLUE)Réponse:$(NC)"; \
+		echo "$$BODY" | python3 -m json.tool 2>/dev/null || echo "$$BODY"; \
+	else \
+		echo "$(RED)✗ Échec (HTTP $$HTTP_CODE)$(NC)"; \
+		echo ""; \
+		echo "$(YELLOW)Réponse:$(NC)"; \
+		echo "$$BODY"; \
+	fi
+
 format: ## Formater le code Python (black)
 	@if [ -d "$(VENV)" ]; then \
 		echo "$(YELLOW)Formatage du code...$(NC)"; \
