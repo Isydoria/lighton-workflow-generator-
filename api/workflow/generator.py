@@ -2111,7 +2111,10 @@ Generate a complete, self-contained workflow that:
 
             logger.info("🔄 POST-PROCESSING: Analyzing generated code...")
 
-            # Post-processing #1: Add staggering for complex workflows
+            # Post-processing #1: Fix f-strings with complex expressions
+            code = self._fix_fstrings_in_code(code)
+
+            # Post-processing #2: Add staggering for complex workflows
             code = add_staggering_to_workflow(code, description)
 
             logger.info("✅ POST-PROCESSING: Complete")
@@ -2131,15 +2134,117 @@ Generate a complete, self-contained workflow that:
             code = code.split("```python")[1].split("```")[0]
         elif "```" in code:
             code = code.split("```")[1].split("```")[0]
-        
+
         # Remove leading/trailing whitespace
         code = code.strip()
-        
+
         # Ensure execute_workflow is async
         if "def execute_workflow(" in code and "async def execute_workflow(" not in code:
             code = code.replace("def execute_workflow(", "async def execute_workflow(")
-        
+
         return code
+
+    def _fix_fstrings_in_code(self, code: str) -> str:
+        """
+        Post-validation: Fix f-strings with complex expressions that cause syntax errors.
+
+        Converts problematic f-strings with triple quotes and complex expressions
+        to use .format() method instead.
+
+        Example transformation:
+        FROM: report = f'''Score: {candidate['name']}'''
+        TO:   report = '''Score: {}'''.format(candidate['name'])
+        """
+        import re
+
+        logger.info("🔧 POST-VALIDATION: Checking for problematic f-strings...")
+
+        lines = code.split('\n')
+        fixed_lines = []
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+
+            # Detect f-string with triple quotes: f""" or f'''
+            fstring_match = re.match(r'^(\s*)(\w+\s*=\s*)f(["\'])(["\'])\3', line)
+
+            if fstring_match:
+                indent = fstring_match.group(1)
+                var_assignment = fstring_match.group(2)
+                quote = fstring_match.group(3)
+
+                # Collect the full f-string (might span multiple lines)
+                fstring_lines = [line]
+                j = i + 1
+
+                # Find the closing triple quotes
+                triple_quote = quote * 3
+                while j < len(lines):
+                    fstring_lines.append(lines[j])
+                    if triple_quote in lines[j] and j != i:  # Found closing quotes
+                        break
+                    j += 1
+
+                # Join all lines of the f-string
+                full_fstring = '\n'.join(fstring_lines)
+
+                # Extract all {expression} patterns
+                expressions = re.findall(r'\{([^}]+)\}', full_fstring)
+
+                # Check if any expression contains dict access, list access, or complex calls
+                has_complex_expr = any(
+                    '[' in expr or '(' in expr and '{' in expr
+                    for expr in expressions
+                )
+
+                if has_complex_expr:
+                    logger.info(f"  Found problematic f-string at line {i+1}, converting to .format()")
+
+                    # Remove the 'f' prefix
+                    fixed_fstring = full_fstring.replace(f'f{triple_quote}', triple_quote, 1)
+
+                    # Replace {expr} with {} and collect expressions
+                    format_args = []
+                    def replace_expr(match):
+                        format_args.append(match.group(1))
+                        return '{}'
+
+                    fixed_fstring = re.sub(r'\{([^}]+)\}', replace_expr, fixed_fstring)
+
+                    # Add .format() call at the end
+                    # Find the closing triple quote line
+                    fixed_lines_split = fixed_fstring.split('\n')
+                    last_line_idx = len(fixed_lines_split) - 1
+
+                    # Add .format() after the closing quote
+                    fixed_lines_split[last_line_idx] = fixed_lines_split[last_line_idx].rstrip() + '.format(\n'
+
+                    # Add format arguments
+                    for idx, arg in enumerate(format_args):
+                        comma = ',' if idx < len(format_args) - 1 else ''
+                        fixed_lines_split.append(f'{indent}    {arg}{comma}')
+
+                    fixed_lines_split.append(f'{indent})')
+
+                    # Add all fixed lines
+                    fixed_lines.extend(fixed_lines_split)
+
+                    # Skip the lines we just processed
+                    i = j + 1
+                    continue
+
+            fixed_lines.append(line)
+            i += 1
+
+        fixed_code = '\n'.join(fixed_lines)
+
+        if fixed_code != code:
+            logger.info("✅ POST-VALIDATION: Fixed problematic f-strings")
+        else:
+            logger.info("✅ POST-VALIDATION: No problematic f-strings found")
+
+        return fixed_code
 
     async def enhance_workflow_description(self, raw_description: str) -> Dict[str, Any]:
         """
