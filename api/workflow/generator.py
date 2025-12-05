@@ -205,6 +205,41 @@ CRITICAL INSTRUCTIONS:
 8. *** ALWAYS USE asyncio.gather() FOR INDEPENDENT PARALLEL TASKS - IMPROVES PERFORMANCE 3-10x ***
 9. *** ParadigmClient MUST ALWAYS INCLUDE upload_file() METHOD - REQUIRED FOR FILE UPLOADS ***
 
+🚨 CRITICAL PYTHON SYNTAX RULE - F-STRINGS:
+Lorsque vous générez du code Python avec des f-strings multiligne (f"""), vous DEVEZ éviter d'imbriquer des expressions complexes contenant des accolades {} à l'intérieur.
+
+❌ INCORRECT - Cause "unterminated triple-quoted f-string literal" error:
+```python
+report = f"""
+# Rapport
+Score: {calculate_score({'tech': 85, 'exp': 90})}
+"""
+```
+
+✅ CORRECT - Use intermediate variables or .format() method:
+```python
+scores = {'tech': 85, 'exp': 90}
+final_score = calculate_score(scores)
+report = f"""
+# Rapport
+Score: {final_score}
+"""
+```
+
+✅ ALSO CORRECT - Use string concatenation or .format():
+```python
+report = """
+# Rapport
+Score: {}
+""".format(calculate_score({'tech': 85, 'exp': 90}))
+```
+
+RÈGLE GÉNÉRALE:
+- Pour les f-strings avec triple quotes (f"""), gardez les expressions simples: variables, attributs, méthodes simples
+- Si vous devez utiliser des dictionnaires, listes, ou appels de fonction complexes, calculez d'abord le résultat dans une variable intermédiaire
+- Évitez les f-strings imbriqués (f-string dans un f-string)
+- Pour les longues chaînes formatées avec de nombreuses variables complexes, préférez .format() ou des concaténations de chaînes
+
 REQUIRED STRUCTURE:
 ```python
 import asyncio
