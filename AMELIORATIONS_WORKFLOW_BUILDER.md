@@ -86,6 +86,52 @@ Le `paradigm_client.py` généré ne contenait pas la méthode `ask_question(fil
 - ✅ Pattern `wait_for_embedding()` utilisé correctement
 - ✅ Pattern `analyze_documents_with_polling()` fonctionne parfaitement
 
+### 🗑️ Nettoyage final (2025-12-04)
+**Suppression complète de ask_question() du code**:
+
+Après confirmation que l'API ask_question() :
+- ❌ N'existe PAS réellement dans l'API Paradigm (retourne HTTP 500)
+- ✅ Est documentée dans le Swagger mais non fonctionnelle
+- ❌ N'a jamais fonctionné dans nos tests
+
+**Actions effectuées** :
+1. ✅ **Supprimé méthode `ask_question()` de** :
+   - `api/workflow/generator.py` (classe ParadigmClient template)
+   - `api/api_clients.py` (fonction `paradigm_ask_question_about_file()`)
+   - `api/paradigm_client_standalone.py` (méthode de la classe)
+
+2. ✅ **Supprimé fonction `fix_extraction_workflow_apis()`** :
+   - Cette fonction tentait de remplacer analyze_documents_with_polling() par ask_question()
+   - Plus nécessaire car ask_question() n'existe pas
+
+3. ✅ **Mis à jour exemples et références** :
+   - Remplacé "ask_question" par "document_search" dans les notes d'usage
+   - Supprimé exemples utilisant ask_question() dans filter_chunks()
+   - Supprimé mauvais patterns montrant ask_question()
+
+4. ✅ **Conservé test Makefile** :
+   - `test-ask-question` reste dans le Makefile pour documentation
+   - Permet de prouver que l'API retourne HTTP 500
+   - Utile car l'API est documentée dans Swagger Paradigm
+
+5. ✅ **Nettoyé fichiers documentation** :
+   - Supprimé TODO_DEMAIN_2025-12-03.md (contenu migré ici)
+   - Toutes les améliorations sont maintenant dans ce fichier
+
+**Fichiers modifiés** :
+- ✅ [api/workflow/generator.py](api/workflow/generator.py) - Suppression ask_question()
+- ✅ [api/api_clients.py](api/api_clients.py) - Suppression paradigm_ask_question_about_file()
+- ✅ [api/paradigm_client_standalone.py](api/paradigm_client_standalone.py) - Suppression ask_question()
+- ✅ [api/main.py](api/main.py) - Suppression route POST /files/{file_id}/ask
+- ✅ [api/models.py](api/models.py) - Suppression FileQuestionRequest et FileQuestionResponse
+- ✅ TODO_DEMAIN_2025-12-03.md - Supprimé (contenu migré)
+- ✅ [Makefile](Makefile) - Conservé test-ask-question pour documentation
+
+**APIs fonctionnelles à utiliser** :
+- ✅ `document_search(query, file_ids=[...])` - Pour queries rapides sur fichiers spécifiques
+- ✅ `analyze_documents_with_polling(query, document_ids)` - Pour extraction structurée complète
+- ✅ `chat_completion(prompt)` - Pour traitement de texte général
+
 ---
 
 ## 🟡 Amélioration #2 : Identification par position au lieu de par contenu
