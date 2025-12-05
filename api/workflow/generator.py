@@ -78,76 +78,6 @@ def count_api_calls(code: str) -> int:
     return total_calls
 
 
-def fix_extraction_workflow_apis(code: str, description: str) -> str:
-    """
-    Replace analyze_documents_with_polling() with chat_completion() + ask_question()
-    for extraction workflows (CV, forms, invoices).
-
-    This fixes the timeout issue where analyze_documents_with_polling takes 5 minutes
-    instead of 5 seconds with chat_completion.
-    """
-    workflow_type = detect_workflow_type(description)
-
-    if workflow_type != "extraction":
-        # Not an extraction workflow, no changes needed
-        return code
-
-    if "analyze_documents_with_polling" not in code:
-        # Already using correct APIs
-        return code
-
-    logger.info(f"🔧 Post-processing: Detected extraction workflow, fixing API calls")
-    logger.info(f"   Description: {description[:100]}...")
-
-    # Pattern to match: variable = await paradigm_client.analyze_documents_with_polling(query, [doc_id], ...)
-    # We'll replace with chat_completion() pattern
-
-    # Simple replacement strategy: Replace analyze_documents_with_polling with chat_completion
-    # and add ask_question if needed
-
-    fixed_code = code
-
-    # Pattern 1: Single document analysis
-    # result = await paradigm_client.analyze_documents_with_polling(query, [doc_id])
-    pattern1 = r'(\s+)(\w+)\s*=\s*await\s+paradigm_client\.analyze_documents_with_polling\(\s*([^,]+),\s*\[([^\]]+)\]([^\)]*)\)'
-
-    def replace_single_doc(match):
-        indent = match.group(1)
-        result_var = match.group(2)
-        query_var = match.group(3).strip()
-        doc_id = match.group(4).strip()
-
-        # Generate replacement code using chat_completion
-        # Note: We build the prompt string without f-string to avoid nested f-string issues
-        replacement = f'''{indent}# Post-processing: Using chat_completion for fast extraction (instead of analyze_documents_with_polling)
-{indent}# Get document content first
-{indent}try:
-{indent}    doc_content = await paradigm_client.ask_question(
-{indent}        file_id=int({doc_id}),
-{indent}        question="Return the full text and all structured information from this document"
-{indent}    )
-{indent}    # Extract structured data using chat_completion
-{indent}    extraction_prompt = {query_var} + "\\n\\nDocument content:\\n" + doc_content['response']
-{indent}    {result_var} = await paradigm_client.chat_completion(
-{indent}        prompt=extraction_prompt,
-{indent}        model="alfred-4.2"
-{indent}    )
-{indent}except Exception as e:
-{indent}    logger.error(f"Extraction failed: {{e}}")
-{indent}    {result_var} = f"Extraction error: {{str(e)}}"'''
-
-        return replacement
-
-    # Apply replacement
-    fixed_code = re.sub(pattern1, replace_single_doc, fixed_code)
-
-    if fixed_code != code:
-        logger.info(f"✅ Post-processing: Replaced analyze_documents_with_polling with chat_completion")
-        logger.info(f"   Expected speedup: 60x faster (5s instead of 300s)")
-
-    return fixed_code
-
-
 def add_staggering_to_workflow(code: str, description: str) -> str:
     """
     Add staggering (delays) between API calls for complex workflows.
@@ -701,99 +631,6 @@ class ParadigmClient:
             logger.error(f"❌ Upload error: {str(e)}")
             raise
 
-    async def ask_question(
-        self,
-        file_id: int,
-        question: str
-    ) -> Dict[str, Any]:
-        '''
-        Ask a question about a specific uploaded file and get relevant chunks.
-
-        This method is optimized for single-document queries. Use this instead of
-        document_search when you're asking a question about ONE specific document.
-
-        Endpoint: POST /api/v2/files/{id}/ask-question
-
-        Args:
-            file_id: The ID of the uploaded file to query
-            question: The question to ask about the file
-
-        Returns:
-            Dict containing:
-            - response: str - AI-generated answer to the question
-            - chunks: List[Dict] - Relevant document chunks with metadata
-                - id: int
-                - uuid: str (e.g. "3f885f64-5747-4562-b3fc-2c963f66afa6")
-                - content_id: str
-                - text: str - The actual chunk text
-                - metadata: Dict - Additional metadata
-                - document: int - Document ID
-                - chunk_type: str (e.g. "text")
-                - created_at: str (ISO datetime)
-                - updated_at: str (ISO datetime)
-
-        When to use:
-            ✅ Asking a question about ONE specific document
-            ✅ Looping through documents individually
-            ✅ Need both answer and source chunks
-
-            ❌ Searching across MULTIPLE documents (use document_search instead)
-            ❌ Need aggregated results from many files
-
-        Example:
-            # Single document query
-            result = await paradigm.ask_question(
-                file_id=123,
-                question="What is the total amount on this invoice?"
-            )
-            print(f"Answer: {result['response']}")
-            print(f"Found {len(result['chunks'])} relevant chunks")
-
-            # Loop through multiple documents
-            for doc_id in [123, 124, 125]:
-                result = await paradigm.ask_question(
-                    file_id=doc_id,
-                    question="Extract the client name"
-                )
-                print(f"Document {doc_id}: {result['response']}")
-
-        Raises:
-            Exception: If the API call fails or returns an error
-
-        Performance:
-            Uses session reuse internally for 5.55x faster performance
-            compared to creating a new session for each request.
-        '''
-        endpoint = f"{self.base_url}/api/v2/files/{file_id}/ask-question"
-
-        payload = {
-            "question": question
-        }
-
-        try:
-            logger.info(f"📄 Asking question about file {file_id}")
-            logger.info(f"❓ QUESTION: {question}")
-
-            session = await self._get_session()
-            async with session.post(
-                endpoint,
-                json=payload,
-                headers=self.headers
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    num_chunks = len(result.get('chunks', []))
-                    logger.info(f"✅ Got response with {num_chunks} chunks")
-                    return result
-                else:
-                    error_text = await response.text()
-                    logger.error(f"❌ Ask question failed: {response.status}")
-                    raise Exception(f"Ask question API error {response.status}: {error_text}")
-
-        except Exception as e:
-            logger.error(f"❌ Ask question error: {str(e)}")
-            raise
-
     async def filter_chunks(
         self,
         query: str,
@@ -804,9 +641,9 @@ class ParadigmClient:
         '''
         Filter document chunks based on relevance to a query.
 
-        This method takes a list of chunk UUIDs (typically from ask_question or
-        document_search) and filters them to return only the most relevant ones
-        based on semantic similarity to your query.
+        This method takes a list of chunk UUIDs (typically from document_search)
+        and filters them to return only the most relevant ones based on semantic
+        similarity to your query.
 
         Endpoint: POST /api/v2/filter/chunks
 
@@ -832,29 +669,8 @@ class ParadigmClient:
             ✅ Working with 20+ chunks and need the top 5-10
 
             ❌ You only have a few chunks (2-5) - filtering adds overhead
-            ❌ Single document queries - ask_question already returns relevant chunks
+            ❌ Single document queries - document_search already returns relevant chunks
             ❌ You need ALL chunks regardless of relevance
-
-        Example - Basic filtering:
-            # Get chunks from a document
-            result = await paradigm.ask_question(
-                file_id=123,
-                question="Find all financial data"
-            )
-
-            # Extract chunk UUIDs
-            chunk_uuids = [chunk['uuid'] for chunk in result['chunks']]
-
-            # Filter to most relevant chunks for specific question
-            filtered = await paradigm.filter_chunks(
-                query="What is the total revenue?",
-                chunk_ids=chunk_uuids,
-                n=5  # Get top 5 most relevant
-            )
-
-            for chunk in filtered['chunks']:
-                print(f"Score: {chunk['filter_score']}")
-                print(f"Text: {chunk['text'][:100]}...")
 
         Example - Multi-document filtering:
             # Search across multiple documents
@@ -1549,13 +1365,6 @@ When user uploads files (attached_files exists), YOU MUST CHOOSE the right API:
    ✅ Searching across entire workspace/company documents
 
 ❌ WRONG PATTERNS - DO NOT GENERATE THIS CODE:
-
-# ❌ WRONG: Using ask_question() - This API has server-side issues (HTTP 500)
-if attached_files:
-    result = await paradigm_client.ask_question(
-        file_id=int(attached_files[0]),
-        question="Extract name"
-    )  # WRONG - ask_question() currently returns HTTP 500 errors
 
 # ❌ WRONG: Skipping the if/else check entirely
 document_ids = [str(file_id) for file_id in attached_file_ids]  # WRONG - assumes files always exist!
@@ -2281,10 +2090,7 @@ Generate a complete, self-contained workflow that:
 
             logger.info("🔄 POST-PROCESSING: Analyzing generated code...")
 
-            # Post-processing #1: Fix API selection for extraction workflows
-            code = fix_extraction_workflow_apis(code, description)
-
-            # Post-processing #2: Add staggering for complex workflows
+            # Post-processing #1: Add staggering for complex workflows
             code = add_staggering_to_workflow(code, description)
 
             logger.info("✅ POST-PROCESSING: Complete")
@@ -2397,8 +2203,6 @@ Let the code generator choose the appropriate API based on the main prompt instr
 - "Search for invoices in workspace" (code generator will choose document_search without file_ids)
 
 ❌ WRONG Enhancement Examples:
-- "Extract skills using paradigm_client.ask_question" ← WRONG API (has server issues)!
-- "Use ask_question to extract from file" ← WRONG API (HTTP 500 errors)!
 - "Extract skills using paradigm_client.analyze_documents_with_polling" ← TOO SPECIFIC! Just say "Extract skills"
 - "Use document_search to extract from file" ← AMBIGUOUS! Be clear if it's single field or comprehensive
 

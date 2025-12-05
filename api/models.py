@@ -134,25 +134,6 @@ class FileInfoResponse(BaseModel):
     purpose: str = Field(..., description="File purpose")
     content: Optional[str] = Field(None, description="File content if requested")
 
-class FileQuestionRequest(BaseModel):
-    """
-    Request model for asking questions about uploaded files.
-    
-    Enables users to query specific files using natural language.
-    The system will analyze the file content to answer the question.
-    """
-    question: str = Field(..., description="Question to ask about the file")
-
-class FileQuestionResponse(BaseModel):
-    """
-    Response model for file question operations.
-    
-    Contains the AI-generated answer and relevant document chunks.
-    Provides both the response and source material for transparency.
-    """
-    response: str = Field(..., description="Answer to the question")
-    chunks: List[Dict[str, Any]] = Field(..., description="Relevant document chunks")
-
 class WorkflowWithFilesRequest(BaseModel):
     """
     Request model for creating workflows that use uploaded files.

@@ -73,3 +73,7 @@ RAPPORT_TEST_UGAP_DC4.md
 # Startup scripts with API keys
 start.bat
 .vercel
+
+# Workflow description files (contain business logic)
+workflow_ugap_description*.txt
+workflow_*_description*.txt

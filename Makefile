@@ -237,6 +237,54 @@ test-ask-question: ## Tester l'API ask_question de Paradigm
 		echo "$$BODY"; \
 	fi
 
+test-workflow-v4: ## Tester génération workflow UGAP DC4 V4
+	@echo "$(YELLOW)Test génération workflow UGAP DC4 V4...$(NC)"
+	@if [ -z "$$ANTHROPIC_API_KEY" ]; then \
+		echo "$(RED)✗ ANTHROPIC_API_KEY non définie$(NC)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "workflow_ugap_description_v4.txt" ]; then \
+		echo "$(RED)✗ Fichier workflow_ugap_description_v4.txt introuvable$(NC)"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "$(BLUE)Lecture de la description V4...$(NC)"
+	@DESCRIPTION=$$(python3 -c "import json; print(json.dumps(open('workflow_ugap_description_v4.txt').read()))"); \
+	echo ""; \
+	echo "$(YELLOW)Envoi à l'API Workflow Builder...$(NC)"; \
+	RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST \
+		"http://localhost:8000/api/workflows" \
+		-H "Content-Type: application/json" \
+		-d "{\"description\": $$DESCRIPTION, \"name\": \"UGAP DC4 V4 Test\"}"); \
+	HTTP_CODE=$$(echo "$$RESPONSE" | tail -n1); \
+	BODY=$$(echo "$$RESPONSE" | sed '$$d'); \
+	echo ""; \
+	if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then \
+		echo "$(GREEN)✓ Génération réussie (HTTP $$HTTP_CODE)$(NC)"; \
+		echo ""; \
+		WORKFLOW_ID=$$(echo "$$BODY" | python3 -c "import sys, json; print(json.load(sys.stdin).get('id', 'N/A'))"); \
+		echo "$(BLUE)Workflow ID: $$WORKFLOW_ID$(NC)"; \
+		echo ""; \
+		CODE=$$(echo "$$BODY" | python3 -c "import sys, json; print(json.load(sys.stdin).get('generated_code', ''))"); \
+		if echo "$$CODE" | grep -q "ask_question"; then \
+			echo "$(RED)❌ ERREUR: Le code généré utilise ask_question()$(NC)"; \
+		else \
+			echo "$(GREEN)✓ Code correct: n'utilise pas ask_question()$(NC)"; \
+		fi; \
+		echo ""; \
+		APIS=$$(echo "$$CODE" | grep -o "paradigm_client\.[a-z_]*(" | sort | uniq); \
+		echo "$(BLUE)APIs Paradigm utilisées:$(NC)"; \
+		echo "$$APIS" | sed 's/^/  - /'; \
+		echo ""; \
+		LINE_COUNT=$$(echo "$$CODE" | wc -l); \
+		echo "$(BLUE)Taille du code: $$LINE_COUNT lignes$(NC)"; \
+	else \
+		echo "$(RED)✗ Échec (HTTP $$HTTP_CODE)$(NC)"; \
+		echo ""; \
+		echo "$(YELLOW)Réponse:$(NC)"; \
+		echo "$$BODY" | python3 -m json.tool 2>/dev/null || echo "$$BODY"; \
+	fi
+
 format: ## Formater le code Python (black)
 	@if [ -d "$(VENV)" ]; then \
 		echo "$(YELLOW)Formatage du code...$(NC)"; \
