@@ -607,108 +607,6 @@ async def paradigm_get_file_info(file_id: int, include_content: bool = False) ->
     except Exception as e:
         raise Exception(f"Getting Paradigm file info failed: {str(e)}")
 
-async def paradigm_ask_question_about_file(
-    file_id: int,
-    question: str,
-    session: Optional[aiohttp.ClientSession] = None
-) -> Dict[str, Any]:
-    """
-    Ask a question about a specific uploaded file and get relevant chunks.
-
-    This endpoint is optimized for single-document queries. Use this instead of
-    document_search when you're asking a question about ONE specific document.
-
-    Endpoint: POST /api/v2/files/{id}/ask (or /chunks based on Paradigm version)
-
-    Args:
-        file_id: The ID of the uploaded file to query
-        question: The question to ask about the file
-        session: Optional aiohttp ClientSession for connection reuse (5x faster)
-
-    Returns:
-        Dict containing:
-        - response: str - AI-generated answer to the question
-        - chunks: List[Dict] - Relevant document chunks with metadata
-            - id: int
-            - uuid: str (e.g. "3f885f64-5747-4562-b3fc-2c963f66afa6")
-            - content_id: str
-            - text: str - The actual chunk text
-            - metadata: Dict - Additional metadata
-            - document: int - Document ID
-            - chunk_type: str (e.g. "text")
-            - created_at: str (ISO datetime)
-            - updated_at: str (ISO datetime)
-
-    When to use:
-        ✅ Asking a question about ONE specific document
-        ✅ Looping through documents individually
-        ✅ Need both answer and source chunks
-
-        ❌ Searching across MULTIPLE documents (use document_search instead)
-        ❌ Need aggregated results from many files
-
-    Example:
-        # Single document query
-        result = await paradigm_ask_question_about_file(
-            file_id=123,
-            question="What is the total amount on this invoice?"
-        )
-        print(f"Answer: {result['response']}")
-        print(f"Found {len(result['chunks'])} relevant chunks")
-
-        # With session reuse (5x faster for multiple calls)
-        async with aiohttp.ClientSession() as session:
-            for doc_id in [123, 124, 125]:
-                result = await paradigm_ask_question_about_file(
-                    file_id=doc_id,
-                    question="Extract the client name",
-                    session=session
-                )
-
-    Raises:
-        Exception: If the API call fails or returns an error
-    """
-    endpoint = f"{settings.lighton_base_url}/api/v2/files/{file_id}/ask"
-
-    payload = {
-        "question": question
-    }
-
-    logger.info(f"📄 Asking question about file {file_id}")
-    logger.info(f"❓ QUESTION: {question}")
-
-    try:
-        # Use provided session or create a new one
-        close_session = session is None
-        if session is None:
-            session = aiohttp.ClientSession()
-
-        try:
-            async with session.post(
-                endpoint,
-                json=payload,
-                headers=_get_paradigm_headers()
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logger.info(f"✅ Got response with {len(result.get('chunks', []))} chunks")
-                    return result
-                else:
-                    error_text = await response.text()
-                    logger.error(f"❌ Paradigm ask question API error {response.status}: {error_text}")
-                    raise Exception(f"Paradigm ask question API error {response.status}: {error_text}")
-        finally:
-            # Only close if we created the session
-            if close_session:
-                await session.close()
-
-    except aiohttp.ClientError as e:
-        logger.error(f"❌ Network error calling Paradigm ask question API: {str(e)}")
-        raise Exception(f"Network error calling Paradigm ask question API: {str(e)}")
-    except Exception as e:
-        logger.error(f"❌ Paradigm ask question failed: {str(e)}")
-        raise Exception(f"Paradigm ask question failed: {str(e)}")
-
 async def paradigm_filter_chunks(
     query: str,
     chunk_ids: List[str],
@@ -748,7 +646,7 @@ async def paradigm_filter_chunks(
 
         ❌ Already have few chunks (< 10)
         ❌ Need all chunks regardless of relevance
-        ❌ Single document queries (use ask_question instead)
+        ❌ Single document queries (use document_search instead)
 
     Example:
         # Filter chunks from multiple documents
@@ -1264,9 +1162,6 @@ class MockParadigmClient:
 
     async def get_file_info(self, file_id: int, **kwargs) -> Dict[str, Any]:
         return await paradigm_get_file_info(file_id, **kwargs)
-
-    async def ask_question_about_file(self, file_id: int, question: str) -> Dict[str, Any]:
-        return await paradigm_ask_question_about_file(file_id, question)
 
     async def delete_file(self, file_id: int) -> bool:
         return await paradigm_delete_file(file_id)

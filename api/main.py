@@ -45,8 +45,6 @@ from .models import (
     ErrorResponse,
     FileUploadResponse,
     FileInfoResponse,
-    FileQuestionRequest,
-    FileQuestionResponse,
     WorkflowWithFilesRequest,
     WorkflowDescriptionEnhanceRequest,
     WorkflowDescriptionEnhanceResponse,
@@ -654,38 +652,6 @@ async def get_file_info(file_id: int, include_content: bool = False):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get file info: {str(e)}"
-        )
-
-@api_router.post("/files/{file_id}/ask", response_model=FileQuestionResponse, tags=["Files"])
-async def ask_question_about_file(file_id: int, request: FileQuestionRequest):
-    """
-    Ask a natural language question about a specific uploaded file.
-    
-    Uses AI to analyze the file content and provide answers to user questions.
-    Returns both the answer and relevant document chunks for transparency.
-    
-    Args:
-        file_id: ID of the file to question
-        request: Question request containing the natural language query
-        
-    Returns:
-        FileQuestionResponse: AI-generated answer with supporting document chunks
-        
-    Raises:
-        HTTPException: 503 if API keys are missing, 500 if question processing fails
-    """
-    # Validate required API keys
-    validate_lighton_api_key()
-    
-    try:
-        result = await paradigm_client.ask_question_about_file(file_id, request.question)
-        return FileQuestionResponse(**result)
-        
-    except Exception as e:
-        logger.error(f"Failed to ask question about file {file_id}: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to ask question: {str(e)}"
         )
 
 @api_router.delete("/files/{file_id}", tags=["Files"])
