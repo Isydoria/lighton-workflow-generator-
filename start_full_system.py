@@ -96,6 +96,14 @@ def start_full_system():
         # Check if backend started successfully
         if backend_process.poll() is not None:
             print("ERROR: Backend API failed to start")
+            # Read and print the error output
+            stdout, stderr = backend_process.communicate()
+            if stderr:
+                print("=" * 50)
+                print("BACKEND ERROR DETAILS:")
+                print("=" * 50)
+                print(stderr.decode('utf-8', errors='replace'))
+                print("=" * 50)
             cleanup_processes()
             return
         print("   Backend API started successfully")
